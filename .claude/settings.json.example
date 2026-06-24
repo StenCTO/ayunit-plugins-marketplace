@@ -1,0 +1,13 @@
+{
+  "extraKnownMarketplaces": {
+    "sten-ayunit": {
+      "source": {
+        "source": "url",
+        "url": "https://dev.azure.com/ayunit/Agnes/_git/ayunit-plugins-marketplace"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "account-transaction@sten-ayunit": true
+  }
+}

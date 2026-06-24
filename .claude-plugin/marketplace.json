@@ -1,0 +1,17 @@
+{
+  "name": "sten-ayunit",
+  "owner": {
+    "name": "Sten Capital"
+  },
+  "metadata": {
+    "description": "Sten Capital's internal Claude plugins for the ayunit / Agnes backoffice — one plugin per Portfolio/Global domain.",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "account-transaction",
+      "source": "./plugins/account-transaction",
+      "description": "Custody activity loaders (UBS Miami, Morgan Stanley, BTG Offshore) plus duplicate-trade-reconcile for Portfolio.AccountTransaction."
+    }
+  ]
+}

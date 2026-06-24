@@ -1,0 +1,14 @@
+# OS / editor noise
+.DS_Store
+Thumbs.db
+desktop.ini
+*.tmp
+*.tmp.*
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Packaged skill artifacts
+*.skill
