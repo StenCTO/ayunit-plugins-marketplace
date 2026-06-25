@@ -29,6 +29,30 @@ Each domain plugin is self-contained and independently versioned via its own
 `plugin.json` `version`. Add future cores (`account-position`, `global-asset`, …)
 as new `plugins/<name>/` folders and a new entry in `marketplace.json`.
 
+## Repos & remotes (why there are two)
+
+This repo lives on **two remotes**, kept in sync on every release:
+
+| Remote | URL | Role |
+|---|---|---|
+| `origin` | `https://ayunit@dev.azure.com/ayunit/Agnes/_git/ayunit-plugins-marketplace` | **Source of truth.** Internal Azure DevOps repo under the `Agnes` project. |
+| `github` | `https://github.com/StenCTO/ayunit-plugins-marketplace` | **Distribution mirror.** Public-account repo that teammates' Claude Desktop installs from. |
+
+**Why a GitHub mirror exists:** Claude Desktop's `/plugin marketplace add` does
+**not** accept Azure DevOps URLs as plugin sources. So we maintain the same
+content on a GitHub repo as a distribution channel. Teammates install from the
+GitHub URL; we still push to Azure as the internal source of truth.
+
+**Push to both on every release** (the two remotes must not drift):
+
+```bash
+git push origin    # → Azure DevOps (source of truth)
+git push github    # → GitHub mirror (what teammates install from)
+```
+
+If you cloned freshly and only see one remote, re-add the missing one:
+`git remote add github https://github.com/StenCTO/ayunit-plugins-marketplace.git`.
+
 ## One-time: push this repo to Azure DevOps + GitHub mirror
 
 Azure DevOps (internal project repo, source of truth) and a **GitHub mirror**
