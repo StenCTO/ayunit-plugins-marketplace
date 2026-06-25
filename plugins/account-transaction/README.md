@@ -81,4 +81,4 @@ skill as the template:
   (the proc signs them), never pass `AccountCurrency`/`AccountFx`.
 
 ---
-_Sten Capital · v0.8.0_
+_Sten Capital · v0.8.1_
