@@ -1,0 +1,12 @@
+{
+  "name": "position",
+  "version": "0.1.0",
+  "description": "Tools for Portfolio position monitoring & reconciliation on the ayunit MCP. Reads v_AccountPosition (book of record), reconciles against v_CustodyPosition (broker snapshot), and manages v_AssetCustody (custody↔asset mapping) — quantity/cost reconciliation, missing-asset detection, and lifecycle of custody identifiers.",
+  "author": {
+    "name": "Sten Capital"
+  },
+  "keywords": [
+    "ayunit", "position", "account-position", "custody-position", "asset-custody",
+    "reconciliation", "inception", "onboarding", "portfolio", "backoffice"
+  ]
+}
