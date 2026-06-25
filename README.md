@@ -111,4 +111,4 @@ Then add it to `.claude-plugin/marketplace.json`:
 
 | Plugin | Version | Skills |
 |---|---|---|
-| `account-transaction` | 0.7.0 | `btg-offshore`, `morgan-stanley`, `ubs-miami`, `duplicate-trade-reconcile` |
+| `account-transaction` | 0.8.0 | `btg-offshore`, `morgan-stanley`, `ubs-miami`, `duplicate-trade-reconcile`, `compromissada-fix` |
