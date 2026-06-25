@@ -3,7 +3,7 @@
     "sten-ayunit": {
       "source": {
         "source": "url",
-        "url": "https://dev.azure.com/ayunit/Agnes/_git/ayunit-plugins-marketplace"
+        "url": "https://github.com/StenCTO/ayunit-plugins-marketplace"
       }
     }
   },

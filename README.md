@@ -29,28 +29,38 @@ Each domain plugin is self-contained and independently versioned via its own
 `plugin.json` `version`. Add future cores (`account-position`, `global-asset`, …)
 as new `plugins/<name>/` folders and a new entry in `marketplace.json`.
 
-## One-time: push this repo to Azure DevOps
+## One-time: push this repo to Azure DevOps + GitHub mirror
 
-You said you keep one repo per project. Create a new repo for the marketplace
-(e.g. `claude-plugins`) in whichever project you want to own the tooling:
+Azure DevOps (internal project repo, source of truth) and a **GitHub mirror**
+(`StenCTO/ayunit-plugins-marketplace`) — both kept in sync. The GitHub mirror
+exists because Claude Desktop's plugin loader does **not** accept Azure DevOps
+URLs, so teammates install from GitHub. Every release pushes to both:
 
 ```bash
 cd "claude-plugins"
 git init
 git add .
 git commit -m "Init sten-ayunit marketplace: account-transaction v0.7.0"
+# source of truth — Azure DevOps
 git remote add origin https://ayunit@dev.azure.com/ayunit/Agnes/_git/ayunit-plugins-marketplace
 git push -u origin main
+# distribution mirror — GitHub (what teammates install from)
+git remote add github https://github.com/StenCTO/ayunit-plugins-marketplace.git
+git push -u github main
 ```
 
 Azure DevOps private repos authenticate with a **Personal Access Token** (PAT) via
-your git credential manager — the same credentials you use to clone any repo. If
-`git push` prompts, use your PAT as the password.
+your git credential manager. GitHub auth uses your normal credential manager / PAT.
+
+On every release, `git push` goes to **origin (Azure)** and `git push github` to
+the **GitHub mirror** — push to both so they don't drift.
 
 ## For each teammate: add the marketplace, install plugins
 
+> Install from the **GitHub** URL — Claude Desktop doesn't accept Azure DevOps URLs.
+
 ```text
-/plugin marketplace add https://dev.azure.com/ayunit/Agnes/_git/ayunit-plugins-marketplace
+/plugin marketplace add https://github.com/StenCTO/ayunit-plugins-marketplace
 /plugin install account-transaction@sten-ayunit
 ```
 
@@ -74,7 +84,7 @@ anyone touching the install UI. Copy `.claude/settings.json.example` to
 {
   "extraKnownMarketplaces": {
     "sten-ayunit": {
-      "source": { "source": "url", "url": "https://dev.azure.com/ayunit/Agnes/_git/ayunit-plugins-marketplace" }
+      "source": { "source": "url", "url": "https://github.com/StenCTO/ayunit-plugins-marketplace" }
     }
   },
   "enabledPlugins": { "account-transaction@sten-ayunit": true }
@@ -87,7 +97,9 @@ anyone touching the install UI. Copy `.claude/settings.json.example` to
 2. **Bump the plugin's `version`** in `plugins/<domain>/.claude-plugin/plugin.json`
    — users only receive an update when this field changes (if you omit `version`,
    every commit counts as a new version instead).
-3. Commit and push. Teammates run `/plugin marketplace update sten-ayunit`.
+3. Commit, then push to **both** remotes: `git push && git push github`. Teammates
+   run `/plugin marketplace update sten-ayunit` to pick up the new version from
+   the GitHub mirror.
 
 ## Adding a new domain plugin
 
