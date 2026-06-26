@@ -115,6 +115,22 @@ anyone touching the install UI. Copy `.claude/settings.json.example` to
 }
 ```
 
+## Local MCP setup (for skill authors working in this repo)
+
+When you're **authoring or debugging skills in this repo** (not running them as
+an installed plugin), you can wire Claude Code in this folder directly to the
+**ayunit MCP** so reads/writes hit the live DB during development. Copy the
+example file to its real name and paste your ayunit API key:
+
+```bash
+cp .mcp.json.example .mcp.json
+# then edit .mcp.json, replace REPLACE_WITH_YOUR_AYUNIT_API_KEY with your key
+```
+
+`.mcp.json` is git-ignored so the key never leaves your machine. Commit only
+`.mcp.json.example`. Claude Code will offer to enable the `ayunit` MCP server
+on the next session start.
+
 ## Releasing a change
 
 1. Edit the skill(s) under `plugins/<domain>/skills/…`.

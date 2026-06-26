@@ -12,3 +12,6 @@ __pycache__/
 
 # Packaged skill artifacts
 *.skill
+
+# Local MCP config — contains the ayunit API key. Commit .mcp.json.example instead.
+.mcp.json

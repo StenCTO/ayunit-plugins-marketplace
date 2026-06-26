@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "ayunit": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "https://agnes.brazilsouth.cloudapp.azure.com/sse",
+        "--header",
+        "x-api-key:REPLACE_WITH_YOUR_AYUNIT_API_KEY"
+      ]
+    }
+  }
+}
