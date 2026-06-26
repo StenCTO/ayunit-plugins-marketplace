@@ -11,7 +11,7 @@
     {
       "name": "account-transaction",
       "source": "./plugins/account-transaction",
-      "description": "Custody activity loaders (UBS Miami, Morgan Stanley, BTG Offshore) plus duplicate-trade-reconcile and compromissada-fix for Portfolio.AccountTransaction."
+      "description": "Custody activity loaders (UBS Miami, Morgan Stanley, BTG Offshore) plus batch fixers (duplicate-trade-reconcile, compromissada-fix, assetrelated-fix) for Portfolio.AccountTransaction."
     },
     {
       "name": "position",

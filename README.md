@@ -147,5 +147,5 @@ Then add it to `.claude-plugin/marketplace.json`:
 
 | Plugin | Version | Skills |
 |---|---|---|
-| `account-transaction` | 0.8.1 | `btg-offshore`, `morgan-stanley`, `ubs-miami`, `duplicate-trade-reconcile`, `compromissada-fix` |
+| `account-transaction` | 0.9.0 | `btg-offshore`, `morgan-stanley`, `ubs-miami`, `duplicate-trade-reconcile`, `compromissada-fix`, `assetrelated-fix` |
 | `position` | 0.1.0 | `inception-position` |
