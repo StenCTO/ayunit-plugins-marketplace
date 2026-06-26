@@ -19,6 +19,11 @@
       "description": "Position monitoring & reconciliation for Portfolio.v_AccountPosition (book of record) against v_CustodyPosition (broker snapshot), plus v_AssetCustody mapping. Includes inception-position for seeding the first day of a newly-onboarded account."
     },
     {
+      "name": "asset",
+      "source": "./plugins/asset",
+      "description": "Security-master tools for Global.Asset and Portfolio.AssetCustody on the ayunit MCP. Registration-by-analogy with lookup-validation and duplicate gating. First skill: asset-register."
+    },
+    {
       "name": "routines",
       "source": "./plugins/routines",
       "description": "Orchestrator skills (meta-skills) that chain leaf skills from account-transaction and position into daily/weekly backoffice routines. Designed for Claude Cowork Desktop scheduled tasks. First routine: daily-btg-offshore-routine."
