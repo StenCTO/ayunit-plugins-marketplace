@@ -100,6 +100,45 @@ def signature(name: str) -> str:
     return "".join(distinctive)
 
 
+# ---- Curated alias map (human-confirmed name -> Asset overrides) -------------
+
+import os
+_ALIAS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "alias_map.json")
+
+def _alias_norm(name):
+    s = deaccent(name or "").strip()
+    s = re.sub(r"^-\s*", "", s)
+    return re.sub(r"\s+", " ", s)
+
+def _load_aliases():
+    by_key, by_sig = {}, {}
+    try:
+        with open(_ALIAS_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+        for a in data.get("aliases", []):
+            asset = a.get("asset")
+            if not asset:
+                continue
+            by_key[_alias_norm(a.get("name", ""))] = asset
+            sg = signature(a.get("name", ""))
+            if sg:
+                by_sig.setdefault(sg, asset)
+    except FileNotFoundError:
+        pass
+    return by_key, by_sig
+
+_ALIAS_BY_KEY, _ALIAS_BY_SIG = _load_aliases()
+
+def alias_lookup(name):
+    """Return the human-confirmed Asset for a parsed name, or None."""
+    if not name:
+        return None
+    k = _alias_norm(name)
+    if k in _ALIAS_BY_KEY:
+        return _ALIAS_BY_KEY[k]
+    return _ALIAS_BY_SIG.get(signature(name))
+
+
 # ---- Layout parsers --------------------------------------------------------
 
 # A: "RENDIMENTOS DE CLIENTES <TICKER> S/ <n>"  -> the ticker sits between
@@ -148,7 +187,7 @@ def match_name(name: str, holdings):
     Returns (best_holding, best_score, unique_clear_winner: bool).
     """
     cand = signature(name)
-    if not cand:
+    if not cand or not holdings:
         return None, 0.0, False
     scored = []
     for h in holdings:
@@ -176,6 +215,14 @@ def resolve(candidates, holdings):
         row["score"] = None
         row["conviction"] = "REPORT"
         row["reason"] = ""
+
+        # --- curated alias map (human-confirmed) takes precedence over fuzzy/coherence ---
+        ahit = alias_lookup(extracted)
+        if ahit:
+            row.update(matchedAsset=ahit, score=1.0, conviction="HIGH",
+                       reason=f"alias map (human-confirmed): '{extracted}' -> {ahit}")
+            out.append(row)
+            continue
 
         if layout == "UNKNOWN":
             row["reason"] = "description matches no known income layout (A/B) - manual"

@@ -149,6 +149,18 @@ fuzzy match — comes back `REPORT` (never auto-written). This is by design: the
 reproduces the careful human link (it independently re-derives `SULAMEX BZ` for the
 `Devolução … SulAmérica …` rows) and refuses to guess when coherence isn't met.
 
+> **Curated alias map (`scripts/alias_map.json`).** Resolution consults this file
+> **before** the fuzzy step. It maps a normalised description-family (e.g.
+> `JIVE BOSSANOVA HIGH YIELD ADVISORY FIC FIDC`) directly to an `Asset` code that a
+> human has confirmed. An alias hit is treated as **human-confirmed HIGH** — it
+> bypasses both the fuzzy threshold and the holding-universe coherence gate (the
+> operator has vouched that this income name belongs to this asset). This is how
+> recurring REPORT families (distribution-fee rebates from funds whose registered
+> `Description` doesn't lexically match XP's marketing name) become auto-fixes. To
+> extend it: confirm the `Asset` exists in `Global.Asset`, add a
+> `{"name": "...", "asset": "C00..."}` entry, and re-run. Mining the REPORT bucket
+> for new alias candidates is the natural way to grow this file.
+
 > **Extending to new layouts/custodies.** The default grammars are XP's. BTG / MS income
 > receipts use different description text — until their grammar is added to the resolver,
 > those rows fall to `REPORT`. To add one: confirm the new grammar from real

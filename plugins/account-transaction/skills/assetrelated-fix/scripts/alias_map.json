@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "note": "Curated description-family -> Asset overrides for assetrelated-fix. A hit here is treated as HUMAN-CONFIRMED: it resolves AssetRelated directly and is returned as HIGH, BYPASSING the fuzzy match and the holding-universe coherence gate (the operator has vouched that this rebate/income name belongs to this Asset). Keys are matched accent/spacing/structure-word-insensitively. Extend this file as new REPORT families are confirmed; codes must exist in Global.Asset.",
+  "aliases": [
+    {"name": "XP CREDITO ESTRUTURADO 120 FIC DE FIF MULTIMERCAD", "asset": "C0000412491", "assetDescription": "XP CREDITO ESTRUTURADO 120 FIF MULT CRED PRIV RESP LIMITADA", "confirmedBy": "Pedro", "date": "2026-06-26"},
+    {"name": "TREND POS-FIXADO FIC FIRF SIMPLES RL", "asset": "C0000431842", "assetDescription": "TREND POS-FIXADO FC RF SIMPLES RESP LIMITADA", "confirmedBy": "Pedro", "date": "2026-06-26"},
+    {"name": "AZ QUEST LUCE ADVISORY FIC FIF RF CP LP", "asset": "C0000509884", "assetDescription": "AZ QUEST LUCE ADVISORY FC FIF RF CRED PRIV LP", "confirmedBy": "Pedro", "date": "2026-06-26"},
+    {"name": "SPX SEAHAWK ADVISORY FIC FIRF CP LP", "asset": "C0000523747", "assetDescription": "SPX SEAHAWK ADVISORY FIF CIC RF CRED PRIV LP RESP LIMITADA", "confirmedBy": "Pedro", "date": "2026-06-26"},
+    {"name": "JIVE BOSSANOVA HIGH YIELD ADVISORY FIC FIDC", "asset": "C0000637033", "assetDescription": "Jive Bossanova High Yield Advisory FIM FIC ADV CP", "confirmedBy": "Pedro", "date": "2026-06-26"},
+    {"name": "OCCAM LIQUIDEZ FIC FIF RF CP RL", "asset": "C0000655775", "assetDescription": "OCCAM LIQUIDEZ FC FIF RF CP RF", "confirmedBy": "Pedro", "date": "2026-06-26"},
+    {"name": "RBRJ11 - RBR INFRA CREDITO FIC INFRA RF", "asset": "C0000684171", "assetDescription": "RBR INFRA CRED FC FUND INC INFRA RF", "confirmedBy": "Pedro", "date": "2026-06-26"},
+    {"name": "M8 CREDIT ADVANCED FIC FIDC", "asset": "C0000707104", "assetDescription": "M8 CREDIT ADVANCED FIC FIDC", "confirmedBy": "Pedro", "date": "2026-06-26"}
+  ]
+}
