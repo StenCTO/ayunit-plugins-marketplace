@@ -165,5 +165,5 @@ Then add it to `.claude-plugin/marketplace.json`:
 |---|---|---|
 | `account-transaction` | 0.9.1 | `btg-offshore`, `morgan-stanley`, `ubs-miami`, `duplicate-trade-reconcile`, `compromissada-fix`, `assetrelated-fix` |
 | `position` | 0.1.0 | `inception-position` |
-| `asset` | 0.1.0 | `asset-register` |
+| `asset` | 0.2.0 | `asset-register`, `register-br-funds` |
 | `routines` | 0.1.0 | `daily-btg-offshore-routine` |

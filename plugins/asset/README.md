@@ -19,6 +19,7 @@ MCP**, writes are explicit and verified.
 | Skill | Scope | What it does |
 |---|---|---|
 | `asset-register` | `Global.Asset` `I` | Registers a NEW instrument in the security master by **analogy with existing peers** — queries assets of the same kind already in the book and copies their classification convention, validates every lookup string (`AssetGroup`, `SecurityType`, `Product`, `AssetClass`, `Benchmark`, `Source`, `TaxRegime`), runs the duplicate + identifier gate, previews the full row, and INSERTs via `Global.Asset_Update @CMD='I'`, then verifies every FK resolved. |
+| `register-br-funds` | enrichment → `asset-register` | BR fund cadastro path when the user only has the **CNPJ**. Resolves CNPJ → ANBIMA classe/subclasse code via `AssetDataDB.Routines.UnitData` (unit `fundos_anbima_dados_cadastrais`), then calls `get_anbima_cadastral_data` for the ANBIMA registry (denomination, codes, CNPJ, administrator/manager, taxonomy hints), and hands off a pre-filled payload to `asset-register` for duplicate-check + peer classification + preview + INSERT. Does NOT write. |
 
 ## Requirements
 
@@ -60,4 +61,4 @@ MCP**, writes are explicit and verified.
    `/plugin marketplace update sten-ayunit`.
 
 ---
-_Sten Capital · v0.1.0 (draft)_
+_Sten Capital · v0.2.0 (draft)_

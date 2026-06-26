@@ -21,7 +21,7 @@
     {
       "name": "asset",
       "source": "./plugins/asset",
-      "description": "Security-master tools for Global.Asset and Portfolio.AssetCustody on the ayunit MCP. Registration-by-analogy with lookup-validation and duplicate gating. First skill: asset-register."
+      "description": "Security-master tools for Global.Asset and Portfolio.AssetCustody on the ayunit MCP. Registration-by-analogy with lookup-validation and duplicate gating. Skills: asset-register, register-br-funds (CNPJ → ANBIMA → asset-register hand-off)."
     },
     {
       "name": "routines",

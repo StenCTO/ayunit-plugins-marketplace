@@ -1,6 +1,6 @@
 {
   "name": "asset",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Tools for the firm's security master and custody mapping on the ayunit MCP. Reads/writes Global.Asset (one row per instrument, keyed by Asset) and Portfolio.AssetCustody (per-custodian ticker/CUSIP ↔ Asset link) — registration-by-analogy, classification validation against lookups, and custody identifier lifecycle.",
   "author": {
     "name": "Sten Capital"
