@@ -1,13 +1,16 @@
 # position
 
 Position monitoring & reconciliation tools for the Sten book of record. Centred
-on three Portfolio views accessed live through the ayunit MCP:
+on two Portfolio views accessed live through the ayunit MCP:
 
 | View | Role |
 |---|---|
 | `Portfolio.v_AccountPosition` | **Book of record.** Internal end-of-day position derived from `AccountTransaction` + corporate-action processing. The truth Sten reports on. |
 | `Portfolio.v_CustodyPosition` | **Broker snapshot.** What the custodian says we hold (loaded per custody — UBS, MS, BTG, XP …). Reconciliation target. |
-| `Portfolio.v_AssetCustody` | **Custody ↔ asset mapping.** Per-custodian identifier ↔ `Global.Asset` link (custody-specific CUSIPs, tickers, internal IDs). Required for any position to resolve. |
+
+> The custody ↔ asset mapping (`Portfolio.v_AssetCustody`) — required for any
+> custody-feed position to resolve to an `Asset` — lives in the **`asset`**
+> plugin, alongside `Global.Asset`.
 
 The plugin is a **container**: one skill per workflow (reconcile a custody,
 audit a position drift, register a missing custody mapping, …). Each skill

@@ -16,7 +16,7 @@
     {
       "name": "position",
       "source": "./plugins/position",
-      "description": "Position monitoring & reconciliation for Portfolio.v_AccountPosition (book of record) against v_CustodyPosition (broker snapshot), plus v_AssetCustody mapping. Includes inception-position for seeding the first day of a newly-onboarded account."
+      "description": "Position monitoring & reconciliation for Portfolio.v_AccountPosition (book of record) against v_CustodyPosition (broker snapshot). Includes inception-position for seeding the first day of a newly-onboarded account. (Custody↔asset mapping in v_AssetCustody moved to the asset plugin.)"
     },
     {
       "name": "asset",
