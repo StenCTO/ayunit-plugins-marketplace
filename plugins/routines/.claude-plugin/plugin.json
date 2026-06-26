@@ -1,0 +1,12 @@
+{
+  "name": "routines",
+  "version": "0.1.0",
+  "description": "Orchestrator skills (meta-skills) for daily/weekly backoffice routines. Each routine chains leaf skills from account-transaction and position in sequence, captures structured output between steps, branches on results, and emits a per-run report. Fires via Claude Cowork Desktop scheduled tasks (local, full MCP access); also runs manually. Orchestrators never touch the DB directly — all writes go through leaf skills, preserving every CheckedDate / lock / sign guard.",
+  "author": {
+    "name": "Sten Capital"
+  },
+  "keywords": [
+    "ayunit", "orchestration", "routines", "daily", "scheduled",
+    "backoffice", "automation", "portfolio"
+  ]
+}
