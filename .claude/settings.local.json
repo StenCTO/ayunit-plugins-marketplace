@@ -6,7 +6,9 @@
       "mcp__ayunit__get_anbima_cadastral_data",
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "mcp__ayunit__list_docs",
+      "mcp__ayunit__read_doc"
     ]
   }
 }
