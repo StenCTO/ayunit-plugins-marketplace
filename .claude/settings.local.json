@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__ayunit__execute_select_query",
+      "mcp__ayunit__execute_procedure",
+      "mcp__ayunit__get_anbima_cadastral_data",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)"
+    ]
+  }
+}
