@@ -60,53 +60,81 @@ ACCOUNT_OVERRIDES: dict[str, str] = {}
 #   gl       : GENERAL LEDGER RECEIPT/DELIVERY — Asset = USD, AssetRelated = paying security
 #   review   : needs a human decision before it can be written
 ACTIVITY_MAP = {
+    # --- trades ---
     "BOUGHT":                    ("BUY",                     "trade"),
+    "CONTRIBUTION":              ("BUY",                     "trade"),   # IRA/Roth contrib invested as a BUY
+    "SUBSCRIPTION":              ("BUY",                     "trade"),   # fund subscription
+    "DIVIDEND REINVESTMENT":     ("BUY",                     "trade"),   # buy funded by a dividend
+    "AUTO BANK PRODUCT DEPOSIT": ("BUY",                     "trade"),   # MSBNA sweep INTO 99YFH93X0
+    "BANK PRODUCT DEPOSIT":      ("BUY",                     "trade"),   # non-Auto MSBNA sweep IN
     "SOLD":                      ("SELL",                    "trade"),
     "REDEMPTION":                ("SELL",                    "trade"),   # called/matured, at par
-    "INTEREST INCOME":           ("GENERAL LEDGER RECEIPT",  "gl"),
-    "INTEREST":                  ("GENERAL LEDGER RECEIPT",  "gl"),
-    "DIVIDEND":                  ("GENERAL LEDGER RECEIPT",  "gl"),
-    "REFUND":                    ("GENERAL LEDGER RECEIPT",  "gl"),      # OTHER
-    "MISCELLANEOUS INCOME":      ("GENERAL LEDGER RECEIPT",  "gl"),      # OTHER
-    "SERVICE FEE":               ("GENERAL LEDGER DELIVERY", "gl"),      # FEE
-    "ACCOUNT FEE":               ("GENERAL LEDGER DELIVERY", "gl"),      # FEE
-    "TAX WITHHOLDING":           ("WITHDRAW",                "cashflow"),  # GL type TAXES
-    "FUNDS RECEIVED":            ("DEPOSIT",                 "cashflow"),
-    "FUNDS TRANSFERRED":         ("WITHDRAW",                "cashflow"),
-    "FUNDS PAID":                ("WITHDRAW",                "cashflow"),
-    "FUNDS DISBURSED":           ("WITHDRAW",                "cashflow"),
+    "BANK PRODUCT WITHDRAWAL":   ("SELL",                    "trade"),   # MSBNA sweep OUT of 99YFH93X0
     # In-kind security transfers between accounts. ASSET RECEIPT/DELIVERY carry NO cash leg — the
     # position pipeline skips the cash side for these types (see ayunit://docs/portfolio-creator,
     # backoffice/decision-tree); Value/ValueGross hold the market value for the asset's
     # accounting/performance only. Field treatment is identical to a trade.
-    "TRANSFER INTO ACCOUNT":     ("ASSET RECEIPT",  "trade"),
-    "TRANSFER OUT OF ACCOUNT":   ("ASSET DELIVERY", "trade"),
-    # --- review (do NOT auto-book): internal bank-sweep, personal banking ---
-    "BANK PRODUCT DEPOSIT":      (None, "review"),   # cash<->MSBNA savings sweep (internal)
-    "BANK PRODUCT WITHDRAWAL":   (None, "review"),
-    "AUTO BANK PRODUCT DEPOSIT": (None, "review"),
-    "AUTOMATIC DEPOSIT":         (None, "review"),
-    "DEBIT CARD":                (None, "review"),   # CashPlus/checking personal banking
-    "ATM WITHDRAWAL":            (None, "review"),
-    "ZELLE PAYMENT":             (None, "review"),
-    "AUTOMATED PAYMENT":         (None, "review"),
-    "SERVICE FEE ADJ":           (None, "review"),   # sign varies (credit/debit)
+    "TRANSFER INTO ACCOUNT":     ("ASSET RECEIPT",           "trade"),
+    "EXCHANGE IN":               ("ASSET RECEIPT",           "trade"),
+    "EXCHANGE RECEIVED IN":      ("ASSET RECEIPT",           "trade"),
+    "TRANSFER OUT OF ACCOUNT":   ("ASSET DELIVERY",          "trade"),
+    "EXCHANGE OUT":              ("ASSET DELIVERY",          "trade"),
+    "EXCHANGE DELIVER OUT":      ("ASSET DELIVERY",          "trade"),
+    # --- gl ---
+    "INTEREST INCOME":           ("GENERAL LEDGER RECEIPT",  "gl"),
+    "INTEREST":                  ("GENERAL LEDGER RECEIPT",  "gl"),
+    "DIVIDEND":                  ("GENERAL LEDGER RECEIPT",  "gl"),
+    "QUALIFIED DIVIDEND":        ("GENERAL LEDGER RECEIPT",  "gl"),      # INTEREST/DIVIDEND
+    "REFUND":                    ("GENERAL LEDGER RECEIPT",  "gl"),      # OTHER
+    "MISCELLANEOUS INCOME":      ("GENERAL LEDGER RECEIPT",  "gl"),      # OTHER
+    "SERVICE FEE":               ("GENERAL LEDGER DELIVERY", "gl"),      # FEE
+    "ACCOUNT FEE":               ("GENERAL LEDGER DELIVERY", "gl"),      # FEE
+    # --- cashflow (unconditional direction) ---
+    "TAX WITHHOLDING":           ("WITHDRAW",                "cashflow"),  # GL type TAXES
+    "FUNDS PAID":                ("WITHDRAW",                "cashflow"),
+    "FUNDS DISBURSED":           ("WITHDRAW",                "cashflow"),
+    # --- review (do NOT auto-book): genuinely ambiguous ---
+    "ZELLE PAYMENT":             (None, "review"),   # personal banking
     "SOLD - ADJUSTED":           (None, "review"),   # correction; Price often 0
-    "DIVIDEND REINVESTMENT":     (None, "review"),   # buy funded by a dividend
-    "PENDING CARD TRANS":        (None, "review"),
-    "PENDING CASH":              (None, "review"),
+    # Any activity starting with "PENDING " (e.g., PENDING CARD TRANS, PENDING CASH) is routed to
+    # the `skip` bucket — these are MS-side unconfirmed placeholders that will be re-inserted or
+    # deleted once the underlying transaction settles, so we ignore them entirely. Handled in
+    # transform() rather than ACTIVITY_MAP so it stays a single rule.
 }
 
 # Activities whose cash direction comes from the Amount sign (out -> WITHDRAW, in -> DEPOSIT).
-# "CASH TRANSFER" is MS's inter-account cash move ("FUNDS TRANSFERRED To/From XXX") — directional,
-# so it's a real cashflow, not a review item.
-SIGN_CASHFLOW = {"CASH TRANSFER"}
+# Routed to the `cashflow` bucket regardless of any ACTIVITY_MAP entry. Use for any MS activity
+# where the label alone doesn't tell us the direction — `CASH TRANSFER`, fund movements, personal
+# banking, fee adjustments. Sign is the source of truth.
+SIGN_CASHFLOW = {
+    "CASH TRANSFER",            # inter-account cash move ("FUNDS TRANSFERRED To/From XXX")
+    "FUNDS TRANSFERRED",        # was unconditional WITHDRAW — sign is safer than label
+    "FUNDS RECEIVED",           # was unconditional DEPOSIT — sign is safer than label
+    "DEBIT CARD",               # CashPlus/checking personal banking
+    "ATM WITHDRAWAL",
+    "SERVICE FEE ADJ",          # sign varies (credit/debit)
+    "ONLINE TRANSFER",
+    "AUTOMATED PAYMENT",
+    "AUTOMATIC DEPOSIT",
+    "FX CASH WITHDRAWAL",
+}
+
+# Activities whose GL direction comes from the Amount sign (out -> GL DELIVERY, in -> GL RECEIPT).
+# Routed to the `gl` bucket regardless of any ACTIVITY_MAP entry. Plus a catch-all in transform():
+# any unmapped activity whose name contains "INTEREST" (e.g., "INTEREST INCOME-ADJ",
+# "MARGIN INTEREST CHARGED") is sign-directed the same way.
+SIGN_GL = {
+    "WRITE OFF",                # adjustment; sign varies (DEBIT vs CREDIT)
+    "INTEREST INCOME-ADJ",      # interest income adjustment
+    "MARGIN INTEREST CHARGED",  # margin debit
+}
 
 # GeneralLedgerType per activity (for the gl bucket + Tax Withholding).
 GL_TYPE = {
     "INTEREST INCOME": "INTEREST/DIVIDEND", "INTEREST": "INTEREST/DIVIDEND",
-    "DIVIDEND": "INTEREST/DIVIDEND",
-    "REFUND": "OTHER", "MISCELLANEOUS INCOME": "OTHER",
+    "DIVIDEND": "INTEREST/DIVIDEND", "QUALIFIED DIVIDEND": "INTEREST/DIVIDEND",
+    "INTEREST INCOME-ADJ": "INTEREST/DIVIDEND", "MARGIN INTEREST CHARGED": "INTEREST/DIVIDEND",
+    "REFUND": "OTHER", "MISCELLANEOUS INCOME": "OTHER", "WRITE OFF": "OTHER",
     "SERVICE FEE": "FEE", "ACCOUNT FEE": "FEE",
     "TAX WITHHOLDING": "TAXES",
 }
@@ -355,7 +383,16 @@ def transform(rows: list[dict], asset_index: dict, locks: dict, account_map: dic
         if activity in SIGN_CASHFLOW:               # direction from the Amount sign
             bucket = "cashflow"
             ttype = "WITHDRAW" if (amount or 0) < 0 else "DEPOSIT"
-        if ttype is None and bucket != "review":
+        elif activity in SIGN_GL or (activity not in ACTIVITY_MAP and "INTEREST" in activity):
+            # GL direction from the Amount sign. The "INTEREST" catch-all picks up any unmapped
+            # interest-related activity (e.g., MARGIN INTEREST CHARGED, INTEREST INCOME-ADJ).
+            bucket = "gl"
+            ttype = "GENERAL LEDGER DELIVERY" if (amount or 0) < 0 else "GENERAL LEDGER RECEIPT"
+        elif activity.startswith("PENDING "):
+            # MS-side unconfirmed placeholders — re-inserted or deleted once settled. Skip entirely.
+            bucket = "pending_skip"
+            ttype = None
+        if ttype is None and bucket not in ("review", "pending_skip"):
             notes.append(f"UNKNOWN activity '{activity}'")
             bucket = "review"
 
@@ -405,6 +442,12 @@ def transform(rows: list[dict], asset_index: dict, locks: dict, account_map: dic
         elif bucket == "gl":
             abs_val = abs(amount) if amount else None
             gl_type = GL_TYPE.get(activity)
+            # Catch-all "INTEREST" sign-directed gl entries (e.g., MARGIN INTEREST CHARGED) default
+            # to INTEREST/DIVIDEND so they flow with other coupon/interest GL movements.
+            if gl_type is None and activity in SIGN_GL:
+                gl_type = "INTEREST/DIVIDEND" if "INTEREST" in activity else "OTHER"
+            elif gl_type is None and "INTEREST" in activity:
+                gl_type = "INTEREST/DIVIDEND"
             related = asset_index.get(cusip, {}).get("Asset") if cusip else None
             if activity in ("INTEREST INCOME", "INTEREST", "DIVIDEND") and _is_overnight_sweep(descr, cusip):
                 gl_type, related = "OVERNIGHT", None
@@ -414,6 +457,11 @@ def transform(rows: list[dict], asset_index: dict, locks: dict, account_map: dic
             params.update({"GeneralLedgerType": gl_type, "GeneralLedgerDescription": descr,
                            "Asset": CURRENCY, "AssetRelated": related,
                            "Quantity": abs_val, "Price": 1, "Value": abs_val})
+
+        elif bucket == "pending_skip":
+            # PENDING-prefixed activities: MS-side unconfirmed placeholders. Skipped entirely
+            # (write=False below) — not booked in any form. Will reappear once MS settles.
+            notes.append(f"PENDING ('{activity}') — unconfirmed MS placeholder; skipped (write=False)")
 
         else:  # review — activity not in the map: persist as a PENDING/UNKNOWN row, never drop it
             notes.append(f"REVIEW ('{activity}') — no automatic mapping; booked PENDING/UNKNOWN "
@@ -444,7 +492,9 @@ def transform(rows: list[dict], asset_index: dict, locks: dict, account_map: dic
         #                       period. Ignored by design; the row re-enters on a normal future load
         #                       once the lock advances. (ayunit://docs/checkeddate/usage)
         write = True
-        if not client_account:
+        if bucket == "pending_skip":
+            status, write = "IGNORED", False
+        elif not client_account:
             status, bucket, write = "PENDING", "unknown_account", False
         elif lock_blocked:
             notes.append(f"LOCK-BLOCKED: {earliest} <= CheckedDate {lock} for {client_account} "

@@ -48,21 +48,22 @@ aren't portfolio accounts) — reported, never guessed. `ACCOUNT_OVERRIDES` is t
 
 | MS `Activity` | `TransactionType` | `GeneralLedgerType` | Bucket |
 |---|---|---|---|
-| `Bought` | `BUY` | — | trade |
+| `Bought`, `Contribution`, `Subscription`, `Dividend Reinvestment` | `BUY` | — | trade |
+| `Auto Bank Product Deposit`, `Bank Product Deposit` | `BUY` | — | trade (MSBNA sweep IN — Auto or manual) |
 | `Sold`, `Redemption` | `SELL` | — | trade (Redemption = at par) |
-| `Interest Income`, `Interest`, `Dividend` | `GENERAL LEDGER RECEIPT` | `INTEREST/DIVIDEND` | gl |
+| `Bank Product Withdrawal` | `SELL` | — | trade (MSBNA sweep OUT) |
+| `Transfer into Account`, `Exchange In`, `Exchange Received In` | `ASSET RECEIPT` | — | trade (in-kind; **no cash leg**) |
+| `Transfer out of Account`, `Exchange Out`, `Exchange Deliver Out` | `ASSET DELIVERY` | — | trade (in-kind; **no cash leg**) |
+| `Interest Income`, `Interest`, `Dividend`, `Qualified Dividend` | `GENERAL LEDGER RECEIPT` | `INTEREST/DIVIDEND` | gl |
 | `Interest Income` on the **MSBNA Preferred Savings sweep** | `GENERAL LEDGER RECEIPT` | `OVERNIGHT` | gl |
 | `Refund`, `Miscellaneous Income` | `GENERAL LEDGER RECEIPT` | `OTHER` | gl |
 | `Service Fee`, `Account Fee` | `GENERAL LEDGER DELIVERY` | `FEE` | gl |
+| `Write Off`, `Margin Interest Charged`, `Interest Income-Adj`, plus any unmapped activity containing `"Interest"` | `GENERAL LEDGER DELIVERY` if Amount<0 else `GENERAL LEDGER RECEIPT` | `INTEREST/DIVIDEND` (`Interest` family) or `OTHER` (`Write Off`) | gl (direction from the Amount sign) |
 | `Tax Withholding` | `WITHDRAW` | `TAXES` | cashflow |
-| `Funds Received` | `DEPOSIT` | — | cashflow |
-| `Funds Transferred`, `Funds Paid`, `Funds Disbursed` | `WITHDRAW` | — | cashflow |
-| `CASH TRANSFER` | `WITHDRAW` if Amount<0 else `DEPOSIT` | — | cashflow (inter-account cash, "FUNDS TRANSFERRED To/From XXX"; direction from the Amount sign) |
-| `Transfer into Account` | `ASSET RECEIPT` | — | trade (in-kind; **no cash leg**) |
-| `Transfer out of Account` | `ASSET DELIVERY` | — | trade (in-kind; **no cash leg**) |
-| `Bank Product *`, `Auto Bank Product *`, `Automatic Deposit` | — | — | **review** (internal cash↔savings sweep) |
-| `Debit Card`, `ATM Withdrawal`, `Zelle Payment`, `Automated Payment`, `Pending …` | — | — | **review** (personal banking) |
-| `Sold - Adjusted`, `Service Fee Adj`, `Dividend Reinvestment` | — | — | **review** (corrections / sign varies / reinvest) |
+| `Funds Paid`, `Funds Disbursed` | `WITHDRAW` | — | cashflow |
+| `CASH TRANSFER`, `Funds Transferred`, `Funds Received`, `Debit Card`, `ATM Withdrawal`, `Online Transfer`, `Automated Payment`, `Automatic Deposit`, `Service Fee Adj`, `FX Cash Withdrawal` | `WITHDRAW` if Amount<0 else `DEPOSIT` | — | cashflow (direction from the Amount sign — sign is more reliable than label for these) |
+| Any activity starting with `Pending …` (`Pending Card Trans`, `Pending Cash`) | — | — | **skipped** (`Status='IGNORED'`, `write:false`) — MS-side unconfirmed placeholders; they reappear once settled |
+| `Zelle Payment`, `Sold - Adjusted` | — | — | **review** (ambiguous; needs human triage) |
 
 Pass **absolute** `Quantity`/`Price`/`Value`; the proc applies the sign from `TransactionType`
 (see `ayunit://docs/transaction/types`). The review bucket is the MS analogue of ubs-miami's

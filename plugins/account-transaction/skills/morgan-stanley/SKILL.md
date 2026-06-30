@@ -12,11 +12,13 @@ movements (interest, dividends, fees, taxes, external funds in/out). This is the
 `ubs-miami` skill** — same architecture, guardrails, and scripts, adapted to the MS feed.
 
 The MS feed is messier than UBS: it mixes investment activity with internal bank-sweep movements
-and personal banking (debit card, Zelle, ATM) on CashPlus/checking accounts. Those aren't given a
-real `TransactionType` — but they are still **booked as `PENDING` / `UNKNOWN`** (exactly the state
-the firm's own MS loader uses), never dropped, so every movement stays tracked for a human to
-triage. The only rows never written are the genuinely un-writable ones (lock-blocked, unknown
-account, zero amount).
+and personal banking on CashPlus/checking accounts. Most of these now map cleanly — the MSBNA
+sweep books as `BUY`/`SELL` of CUSIP `99YFH93X0`; debit card / ATM / online transfers / fee
+adjustments are routed to the **sign-directed cashflow bucket** (the Amount sign decides
+`WITHDRAW` vs `DEPOSIT`, since the label alone often doesn't). What remains genuinely ambiguous
+(Zelle, Sold - Adjusted) is still **booked as `PENDING`
+/ `UNKNOWN`**, never dropped, so every movement stays tracked for a human to triage. The only
+rows never written are the genuinely un-writable ones (lock-blocked, unknown account, zero amount).
 
 ## Single source of truth & portability — read this first
 
@@ -87,11 +89,17 @@ Written as **PENDING** (tracked, then fixed in place — *do not skip these*):
   Inserted PENDING with `Asset` NULL (the proc's auto-match can later resolve it). Best practice:
   register via **asset-register** + add its `AssetCustody` mapping *before* the load so it lands
   VALIDATED; otherwise it's booked PENDING and you re-validate after registering.
-- **`review`** — an activity not in `ACTIVITY_MAP` (internal bank-sweep, personal banking,
-  corrections like `Sold - Adjusted`/`Service Fee Adj`/`Dividend Reinvestment`). Inserted PENDING
-  with `TransactionType='UNKNOWN'`, carrying the value + raw row, for a human to set the real type.
-  *(In-kind `Transfer into/out of Account` are auto-mapped to `ASSET RECEIPT`/`ASSET DELIVERY` — no
-  cash leg; `CASH TRANSFER` to a sign-directed WITHDRAW/DEPOSIT — so those don't land here.)*
+- **`review`** — an activity left unmapped (today: `Zelle Payment`, `Sold - Adjusted`). Inserted
+  PENDING with `TransactionType='UNKNOWN'`, carrying the value + raw row, for a human to set the
+  real type. *(In-kind transfers/exchanges auto-map to `ASSET RECEIPT`/`ASSET DELIVERY` — no cash
+  leg; MSBNA sweeps (Auto and manual) auto-book as `BUY`/`SELL` of the sweep CUSIP; debit card /
+  ATM / online transfers / `Service Fee Adj` are sign-directed cashflow; `Qualified Dividend` is
+  GL RECEIPT; `Write Off` / `Margin Interest Charged` / `Interest Income-Adj` and other unmapped
+  "Interest"-containing activities are sign-directed GL — so none of those land here.)*
+- **`pending_skip`** — any activity whose label starts with `Pending ` (e.g., `Pending Card Trans`,
+  `Pending Cash`) is **skipped entirely** (`write:false`, would persist as `Status='IGNORED'` if
+  ever forced through). These are MS-side unconfirmed placeholders that get re-inserted or deleted
+  once the underlying transaction settles, so loading them would just churn.
 
 **Ignored** (`write: false` — genuinely un-writable, reported only):
 - **`lock_blocked`** — `Date` or `SettlementDate` ≤ the account's active CheckedDate. The procedure
