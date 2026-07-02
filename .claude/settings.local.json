@@ -8,7 +8,14 @@
       "Bash(git commit -m ' *)",
       "Bash(git push *)",
       "mcp__ayunit__list_docs",
-      "mcp__ayunit__read_doc"
+      "mcp__ayunit__read_doc",
+      "mcp__ayunit__get_table_detail",
+      "mcp__ayunit__list_procedures",
+      "mcp__ayunit__list_views",
+      "mcp__ayunit__get_procedure_detail",
+      "mcp__ayunit__get_view_detail",
+      "mcp__ayunit__search_docs",
+      "mcp__ayunit__identify_asset"
     ]
   }
 }
