@@ -27,6 +27,11 @@
       "name": "routines",
       "source": "./plugins/routines",
       "description": "Orchestrator skills (meta-skills) that chain leaf skills from account-transaction and position into daily/weekly backoffice routines. Designed for Claude Cowork Desktop scheduled tasks. First routine: daily-btg-offshore-routine."
+    },
+    {
+      "name": "anbima-data",
+      "source": "./plugins/anbima-data",
+      "description": "ANBIMA data-feed skills (cadastral, historical, CRI/CRA secondary market). Dual-source: call ANBIMA directly (api.anbima.com.br, OAuth) or via the internal Agnes API server. Skills: anbima-funds-data, anbima-funds-historical-data, anbima-cri-cra-market."
     }
   ]
 }
