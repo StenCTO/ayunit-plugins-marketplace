@@ -51,10 +51,22 @@ _ENV_LOADED = False
 
 
 def _load_env() -> None:
+    """Load credentials from .env files (first-wins, then OS env).
+
+    Precedence (python-dotenv default is override=False → first non-empty
+    value wins, then any real OS env var wins over both):
+      1. Plugin-local `.env`         — dev workflow when editing this repo.
+      2. User-level `~/.anbima-data.env` — fallback for installed plugins
+         (Claude Desktop, marketplace installs) where the plugin folder is
+         read-only or unknown to the user. Lives entirely outside any repo.
+
+    Neither file is required. Missing files are ignored silently.
+    """
     global _ENV_LOADED
     if _ENV_LOADED:
         return
     load_dotenv(_PLUGIN_ROOT / ".env")
+    load_dotenv(Path.home() / ".anbima-data.env")
     _ENV_LOADED = True
 
 
