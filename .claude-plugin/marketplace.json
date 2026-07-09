@@ -31,7 +31,7 @@
     {
       "name": "anbima-data",
       "source": "./plugins/anbima-data",
-      "description": "ANBIMA data-feed skills (cadastral, historical, CRI/CRA secondary market). Dual-source: call ANBIMA directly (api.anbima.com.br, OAuth) or via the internal Agnes API server. Skills: anbima-funds-data, anbima-funds-historical-data, anbima-cri-cra-market."
+      "description": "ANBIMA data-feed skills for Brazilian investment funds — thin routing layer over the Ayunit MCP (no bundled Python, no credentials). Skills: anbima-funds-data (cadastral registry), anbima-funds-historical-data (NAV/PL/cota series). Cross-surface: Claude Code, Claude Desktop, Claude Cowork."
     }
   ]
 }

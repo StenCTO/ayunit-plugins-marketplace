@@ -1,12 +1,12 @@
 {
   "name": "anbima-data",
-  "version": "0.1.0",
-  "description": "ANBIMA data-feed skills (cadastral, historical, CRI/CRA secondary market). Each skill can call ANBIMA directly (api.anbima.com.br, OAuth client_credentials) or route through the internal Agnes API server as a proxy. Bundled Python scripts + shared httpx client with token caching. Env vars: ANBIMA_CLIENT_ID, ANBIMA_CLIENT_SECRET, AGNES_BASE_URL, AGNES_API_KEY.",
+  "version": "0.2.0",
+  "description": "ANBIMA data-feed skills for Brazilian investment funds. Thin routing layer over the Ayunit MCP (get_anbima_cadastral_data, get_anbima_historical_data) — no bundled Python, no credentials, no .env. Cross-surface: works wherever the Ayunit MCP is loaded (Claude Code, Claude Desktop, Claude Cowork).",
   "author": {
     "name": "Sten Capital"
   },
   "keywords": [
-    "ayunit", "anbima", "cadastral", "historical", "cri-cra",
-    "external-api", "agnes-proxy", "http-client", "python-skill"
+    "ayunit", "anbima", "funds", "cadastral", "historical",
+    "mcp-router", "brazilian-funds"
   ]
 }

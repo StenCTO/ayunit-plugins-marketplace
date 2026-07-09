@@ -1,36 +1,29 @@
 # anbima-data
 
-ANBIMA data-feed skills. Every skill can hit ANBIMA two ways:
+ANBIMA data-feed skills for Brazilian investment funds. Every skill is a
+thin routing layer over the **Ayunit MCP** — the Ayunit backend holds the
+ANBIMA client-id/secret and handles the OAuth token dance server-side, so
+this plugin ships no code, no credentials, and no `.env`.
 
-- `source="agnes"` (default) — via the internal Agnes API server, which handles the ANBIMA OAuth token dance on the backend. Requires `AGNES_API_KEY` (Agnes uses HTTPBearer on every `/api/v1/*` endpoint).
-- `source="anbima"` — directly against `api.anbima.com.br`, using OAuth client-credentials with a locally-cached token. Requires `ANBIMA_CLIENT_ID` / `ANBIMA_CLIENT_SECRET` env vars.
+Cross-surface by design: works in Claude Code, Claude Desktop, and Claude
+Cowork wherever the Ayunit MCP is loaded.
 
 ## Skills
 
-| Skill | Endpoint (Agnes) | Purpose |
+| Skill | MCP tool | Purpose |
 |---|---|---|
-| `anbima-funds-data` | `GET /api/v1/anbima/cadastral-data/{codigo}` | Cadastral data for a Brazilian investment fund by ANBIMA code (fund-only) |
-| `anbima-funds-historical-data` | `GET /api/v1/anbima/historical-data/{codigo}` | Fund historical series (PL, cota, rentabilidade; optional `size`, `data_inicio`) |
-| `anbima-cri-cra-market` | `GET /api/v1/anbima/cri-cra-secondary-market` | CRI/CRA secondary-market snapshot (optional `data_referencia`) |
+| `anbima-funds-data` | `mcp__ayunit__get_anbima_cadastral_data` | Cadastral registry for a Brazilian investment fund by ANBIMA code (fund-only) |
+| `anbima-funds-historical-data` | `mcp__ayunit__get_anbima_historical_data` | Fund historical series (`valor_cota`, `valor_patrimonio_liquido`, subscriptions/redemptions, `numero_cotistas`) with optional `data_inicio` + `size` |
 
-## Setup
+## Requirements
 
-```bash
-cd plugins/anbima-data
-cp .env.example .env
-# edit .env with real credentials (only needed for source=anbima)
-```
+The Ayunit MCP must be loaded in the session. That's it — no env vars, no
+credentials, no local dependencies.
 
-Dependencies: `httpx`, `python-dotenv` (assumed present in the Claude Code Python environment; see `shared/requirements.txt`).
+## Identifier semantics
 
-## Usage (direct, without Claude)
-
-```bash
-python skills/anbima-funds-data/scripts/fetch_funds_data.py --codigo 258.363 --source agnes
-python skills/anbima-funds-historical-data/scripts/fetch_funds_historical_data.py --codigo C0000751243 --size 30 --source agnes
-python skills/anbima-cri-cra-market/scripts/fetch_cri_cra.py --data-referencia 2026-07-01 --source agnes
-```
-
-## Direct-ANBIMA mode
-
-`source="anbima"` on the data endpoints is stubbed until the raw ANBIMA URLs are pasted into `shared/_anbima_client.py` (constants `ANBIMA_CADASTRAL_URL`, `ANBIMA_HISTORICAL_URL`, `ANBIMA_CRI_CRA_URL`). The token flow is fully wired; only the three data URLs need to come from the reference `AnbimaAPIClient` code. Until then the client raises `NotImplementedError` with a pointer.
+Both skills expect the fund's ANBIMA `codigo_classe` (`C…`) or, for
+multiclasse funds, the `codigo_subclasse` (`S…`). **Not** the CNPJ, **not**
+the `codigo_fundo` (`F…`), and **not** legacy `258.363`-style codes. If the
+user gives a CNPJ, resolve it to an ANBIMA code first via
+`mcp__ayunit__identify_asset` or a lookup on `Global.v_Asset.AnbimaCode`.
