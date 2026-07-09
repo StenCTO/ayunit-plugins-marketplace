@@ -1,12 +1,12 @@
 {
   "name": "anbima-data",
-  "version": "0.2.0",
-  "description": "ANBIMA data-feed skills for Brazilian investment funds. Thin routing layer over the Ayunit MCP (get_anbima_cadastral_data, get_anbima_historical_data) — no bundled Python, no credentials, no .env. Cross-surface: works wherever the Ayunit MCP is loaded (Claude Code, Claude Desktop, Claude Cowork).",
+  "version": "0.3.0",
+  "description": "ANBIMA skills for Brazilian investment funds. Thin routing layer over the Ayunit MCP (no bundled Python, no credentials, no .env). Data skills (anbima-funds-data, anbima-funds-historical-data) call the MCP cadastral/historical tools. Live-artifact skill (anbima-funds-explorer) emits a self-contained HTML dashboard that calls the MCP at runtime via Cowork's window.cowork.callMcpTool bridge — live/interactive in Cowork, layout-only in other surfaces.",
   "author": {
     "name": "Sten Capital"
   },
   "keywords": [
     "ayunit", "anbima", "funds", "cadastral", "historical",
-    "mcp-router", "brazilian-funds"
+    "live-artifact", "cowork-dashboard", "mcp-router", "brazilian-funds"
   ]
 }

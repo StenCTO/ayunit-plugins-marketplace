@@ -31,7 +31,7 @@
     {
       "name": "anbima-data",
       "source": "./plugins/anbima-data",
-      "description": "ANBIMA data-feed skills for Brazilian investment funds — thin routing layer over the Ayunit MCP (no bundled Python, no credentials). Skills: anbima-funds-data (cadastral registry), anbima-funds-historical-data (NAV/PL/cota series). Cross-surface: Claude Code, Claude Desktop, Claude Cowork."
+      "description": "ANBIMA skills for Brazilian investment funds — thin routing layer over the Ayunit MCP (no bundled Python, no credentials). Data skills: anbima-funds-data (cadastral registry), anbima-funds-historical-data (NAV/PL/cota series). Live-artifact skill: anbima-funds-explorer (interactive HTML dashboard, Cowork-optimised). Cross-surface: Claude Code, Claude Desktop, Claude Cowork."
     }
   ]
 }

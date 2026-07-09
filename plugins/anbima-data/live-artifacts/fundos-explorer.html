@@ -1,0 +1,1454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fundos Investimento Brasil</title>
+<style>
+  :root {
+    color-scheme: light;
+    --ink: #191919;      /* body text */
+    --deep: #00283b;     /* darkest navy — headings, table header */
+    --teal: #0099A5;     /* primary action */
+    --teal-d: #295566;   /* secondary/muted text */
+    --teal-l: #8ec4cc;   /* borders */
+    --teal-xl: #afdadd;  /* soft accents */
+    --sand: #a59484;     /* neutral taupe */
+    --rust: #a55819;     /* accent — download */
+    --bg: #f2f8f9;
+    --card: #ffffff;
+    --line: #dbe7ea;
+    --line2: #eef4f5;
+    --tint: #e6f2f4;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
+  .wrap { padding: 18px; }
+  h1 { font-size: 18px; margin: 0 0 4px; color: var(--deep); }
+  .sub { color: var(--teal-d); margin: 0 0 16px; font-size: 13px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--teal-d); margin: 0 0 10px; }
+  button { font: inherit; font-weight: 600; border: 1px solid var(--teal-l); background: #fff; color: var(--deep); padding: 7px 13px; border-radius: 8px; cursor: pointer; }
+  button:hover { background: var(--tint); }
+  button.primary { background: var(--teal); border-color: var(--teal); color: #fff; }
+  button.primary:hover { background: #00838d; }
+  button#dl { background: var(--rust); border-color: var(--rust); color: #fff; }
+  button#dl:hover { background: #8c4a15; }
+  button:disabled { opacity: .4; cursor: default; }
+  button:disabled:hover { background: inherit; }
+  label.file { display: inline-flex; align-items: center; gap: 8px; }
+  label.file > span { font-weight: 600; border: 1px solid var(--teal-l); background: #fff; color: var(--deep); padding: 7px 13px; border-radius: 8px; cursor: pointer; }
+  label.file > span:hover { background: var(--tint); }
+  input[type=file] { display: none; }
+  input[type=text], select { font: inherit; padding: 7px 10px; border: 1px solid var(--teal-l); border-radius: 8px; background: #fff; color: var(--ink); }
+  input[type=text]:focus, select:focus { outline: 2px solid var(--teal); outline-offset: 0; border-color: var(--teal); }
+  input[type=text] { min-width: 260px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .spacer { flex: 1; }
+  .bar { height: 9px; background: var(--tint); border-radius: 6px; overflow: hidden; margin-top: 10px; }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--teal); transition: width .2s; }
+  .stat { font-variant-numeric: tabular-nums; }
+  .muted { color: var(--teal-d); }
+  .pill { font-size: 12px; background: var(--tint); color: var(--deep); border: 1px solid var(--teal-xl); padding: 2px 8px; border-radius: 999px; }
+  .err { color: #b42318; white-space: pre-wrap; margin-top: 8px; }
+  .tblwrap { overflow: auto; max-height: 60vh; border: 1px solid var(--line); border-radius: 8px; }
+  table { border-collapse: collapse; font-size: 12px; white-space: nowrap; width: 100%; }
+  th, td { border-bottom: 1px solid var(--line2); border-right: 1px solid var(--line2); padding: 5px 8px; text-align: left; max-width: 340px; overflow: hidden; text-overflow: ellipsis; }
+  tbody tr:nth-child(even) { background: #f7fbfb; }
+  th { position: sticky; top: 0; background: var(--deep); color: #fff; font-weight: 600; cursor: default; }
+  th .idx { color: var(--teal-l); font-weight: 500; }
+  th .hlabel { cursor: pointer; }
+  th .hcaret { cursor: pointer; margin-left: 6px; color: var(--teal-l); }
+  th .hcaret.on { color: #fff; }
+  th:hover .hcaret { color: #fff; }
+  .hmenu { position: fixed; z-index: 60; width: 300px; background: #fff; border: 1px solid var(--teal-l); border-radius: 10px; box-shadow: 0 10px 28px rgba(0,40,59,.18); padding: 10px; }
+  .hmenu .hmrow { display: flex; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; }
+  .hmenu .hmrow button { padding: 4px 8px; font-size: 12px; }
+  .hmsearch { width: 100%; margin-bottom: 6px; padding: 5px 8px; border: 1px solid var(--teal-l); border-radius: 6px; font: inherit; color: var(--ink); }
+  .hmlist { max-height: 200px; overflow: auto; }
+  .hmlist label { display: flex; align-items: center; gap: 8px; padding: 3px 4px; border-radius: 6px; font-size: 12px; white-space: nowrap; cursor: pointer; color: var(--ink); }
+  .hmlist label:hover { background: var(--tint); }
+  .fin { align-items: center; }
+  .finbtn { width: 100%; text-align: left; font-weight: 500; color: var(--teal-d); }
+  .finbtn.on { color: var(--deep); font-weight: 600; border-color: var(--teal); }
+  code { background: var(--tint); color: var(--deep); padding: 1px 5px; border-radius: 4px; }
+  .pager button { padding: 5px 10px; }
+  .colpick { position: relative; }
+  .colpanel { position: absolute; right: 0; top: 40px; z-index: 30; width: 320px; max-height: 340px; overflow: auto; background: #fff; border: 1px solid var(--teal-l); border-radius: 10px; box-shadow: 0 10px 28px rgba(0,40,59,.18); padding: 10px; }
+  .colpanel .row button { padding: 4px 9px; font-size: 12px; }
+  .collist { margin-top: 6px; }
+  .collist label { display: flex; align-items: center; gap: 8px; padding: 3px 5px; border-radius: 6px; font-size: 12px; white-space: nowrap; cursor: pointer; }
+  .collist label:hover { background: var(--tint); }
+  .collist label.hidden { display: none; }
+  .collist .idx { color: var(--sand); }
+  .tabs { display: inline-flex; gap: 4px; background: var(--tint); border-radius: 9px; padding: 3px; }
+  .tab { border: 0; background: transparent; color: var(--teal-d); font-weight: 600; padding: 6px 12px; border-radius: 7px; cursor: pointer; }
+  .tab:hover { background: transparent; color: var(--deep); }
+  .tab.active { background: #fff; color: var(--deep); box-shadow: 0 1px 2px rgba(0,40,59,.12); }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .pos { color: #12805c; }
+  .neg { color: #b42318; }
+  .na { color: var(--sand); }
+  .doclink { color: var(--teal); text-decoration: underline; font-weight: 600; white-space: nowrap; }
+  .doclink:hover { color: var(--deep); }
+  td.metric, th.metric { background: #fbfaf7; }
+  th.metric { background: #143b4d; }
+  .grp { font-size: 11px; color: var(--teal-d); margin: 2px 0 8px; }
+  h2.collapser { cursor: pointer; user-select: none; display: flex; align-items: center; gap: 6px; }
+  .caret { display: inline-block; transition: transform .15s; color: var(--teal); }
+  .caret.closed { transform: rotate(-90deg); }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 4px 0 12px; }
+  .kpi { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  .kpi .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--teal-d); }
+  .kpi .val { font-size: 18px; font-weight: 700; color: var(--deep); font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .charts { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 12px; margin-bottom: 14px; }
+  .chartcard { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+  .chartcard.full { grid-column: 1 / -1; }
+  .chartbox { position: relative; height: 340px; }
+  .chartbox.sm { height: 240px; }
+  #mtbl tbody tr { cursor: pointer; }
+  #mtbl tbody tr.sel td { background: #d8eef0 !important; }
+  #mtbl tbody tr.sel td:first-child { box-shadow: inset 3px 0 0 var(--teal); }
+  .selbar { display: flex; align-items: center; gap: 10px; background: var(--tint); border: 1px solid var(--teal-xl); border-radius: 8px; padding: 6px 12px; margin-bottom: 10px; font-size: 13px; color: var(--deep); }
+  .selbar button { padding: 4px 10px; font-size: 12px; }
+  @media (max-width: 760px){ .charts { grid-template-columns: 1fr; } }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js" integrity="sha384-iU8HYtnGQ8Cy4zl7gbNMOhsDTTKX02BTXptVP/vqAWIaTfM7isw76iyZCsjL2eVi" crossorigin="anonymous"></script>
+</head>
+<body>
+<div class="wrap">
+  <h1>Fundos Investimento Brasil</h1>
+  <p class="sub">Flattened cadastral data (<code>ord</code> + 83 fields). Load it live from <code>AssetDataDB</code> or from a CSV you upload, filter the whole dataset, page through it, and download.</p>
+
+  <div class="card">
+    <h2 class="collapser" id="sourcehead"><span class="caret" id="scaret">▾</span> 1 · Data source</h2>
+    <div id="sourcebody">
+      <div class="row">
+        <button id="run" class="primary">Load from SQL</button>
+        <label class="file"><span>Upload CSV…</span><input id="file" type="file" accept=".csv,text/csv"></label>
+        <span id="src" class="pill" style="display:none;"></span>
+        <div class="spacer"></div>
+        <span id="status" class="muted stat">Idle — pick a source.</span>
+      </div>
+      <div class="bar"><i id="fill"></i></div>
+      <div id="err" class="err"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 class="collapser" id="filterhead"><span class="caret" id="fcaret">▾</span> 2 · Filter (whole dataset) <span id="fheadstat" class="muted" style="font-weight:400; text-transform:none; letter-spacing:0; font-size:12px;"></span></h2>
+    <datalist id="coloptions"></datalist>
+    <div id="filterbody">
+      <div id="filters"></div>
+      <div class="row" style="margin-top:8px;">
+        <button id="addfilter" disabled>+ Add filter</button>
+        <button id="clearall" disabled>Clear all</button>
+        <div class="spacer"></div>
+        <span id="fstat" class="muted stat"></span>
+      </div>
+      <div class="grp">Type a column name to target it (leave blank for “all columns”). Multiple filters combine with AND.</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="margin-bottom:10px;">
+      <div class="tabs">
+        <button id="tabCad" class="tab active">Cadastro</button>
+        <button id="tabMet" class="tab">Preços &amp; Métricas</button>
+      </div>
+      <div class="spacer"></div>
+      <button id="analyze" disabled title="Busca o histórico de preços ANBIMA dos fundos da página atual e calcula as métricas">Gerar dashboard de Preços &amp; Métricas</button>
+      <div class="colpick">
+        <button id="colbtn" disabled>Columns ▾</button>
+        <div id="colpanel" class="colpanel" style="display:none;">
+          <div class="row">
+            <button id="colall">Select all</button>
+            <button id="colnone">Clear</button>
+            <input id="colsearch" type="text" placeholder="find column…" style="min-width:120px; flex:1;">
+          </div>
+          <div id="collist" class="collist"></div>
+        </div>
+      </div>
+      <button id="dl" disabled>Download CSV</button>
+    </div>
+
+    <!-- Cadastro pane -->
+    <div id="paneCad">
+      <div class="tblwrap" id="tblwrap" style="display:none;">
+        <table id="tbl"><thead></thead><tbody></tbody></table>
+      </div>
+      <div class="row pager" id="pager" style="margin-top:10px; display:none;">
+        <button id="first">« First</button>
+        <button id="prev">‹ Prev</button>
+        <span id="pinfo" class="stat muted"></span>
+        <button id="next">Next ›</button>
+        <button id="last">Last »</button>
+        <button id="clearlocal" style="display:none;">✕ Limpar ordem/filtros</button>
+        <div class="spacer"></div>
+        <label class="muted">Rows/page
+          <select id="psize">
+            <option>10</option><option>25</option><option>50</option><option selected>100</option><option>150</option>
+          </select>
+        </label>
+      </div>
+    </div>
+
+    <!-- Métricas pane -->
+    <div id="paneMet" style="display:none;">
+      <div class="grp" id="mhint">Clique em <strong>Gerar dashboard de Preços &amp; Métricas</strong> para buscar o histórico de preços ANBIMA dos fundos exibidos na página Cadastro e calcular retornos Daily / MTD / YTD, patrimônio e NAV nas datas-base.</div>
+      <div class="bar" id="mbarwrap" style="display:none;"><i id="mfill"></i></div>
+      <div class="row" style="margin:8px 0;">
+        <span id="mstatus" class="muted stat"></span>
+        <div class="spacer"></div>
+        <button id="mclearlocal" style="display:none;">✕ Limpar ordem/filtros</button>
+        <div class="colpick">
+          <button id="mcolbtn" disabled>Add columns ▾</button>
+          <div id="mcolpanel" class="colpanel" style="display:none;">
+            <div class="row">
+              <button id="mcoldef">Reset</button>
+              <input id="mcolsearch" type="text" placeholder="find column…" style="min-width:120px; flex:1;">
+            </div>
+            <div id="mcollist" class="collist"></div>
+          </div>
+        </div>
+        <button id="mdl" disabled>Download metrics CSV</button>
+      </div>
+      <div id="merr" class="err"></div>
+      <div id="selbar" class="selbar" style="display:none;">
+        <span id="seltext"></span>
+        <div class="spacer"></div>
+        <button id="selclear">Ver todos</button>
+      </div>
+      <div id="msummary" style="display:none;">
+        <div class="cards" id="mcards"></div>
+        <div class="charts">
+          <div class="chartcard">
+            <div class="row" style="align-items:center; gap:8px;">
+              <div class="grp" id="chartRetTitle" style="margin:0;">Retorno por fundo</div>
+              <div class="spacer"></div>
+              <select id="retSel" title="métrica"><option value="ytd">YTD</option><option value="mtd">MTD</option></select>
+            </div>
+            <div class="chartbox" style="margin-top:8px;"><canvas id="chartRet"></canvas></div>
+          </div>
+          <div class="chartcard">
+            <div class="row" style="align-items:center; gap:8px;">
+              <div class="grp" style="margin:0;">Patrimônio por</div>
+              <select id="aggSel" title="agregação">
+                <option value="tributacao_perseguida">tributacao_perseguida</option>
+                <option value="categoria_cvm">categoria_cvm</option>
+                <option value="tipo_investidor">tipo_investidor</option>
+                <option value="benchmark">benchmark</option>
+              </select>
+              <div class="spacer"></div>
+            </div>
+            <div id="aggCap" style="min-height:16px; margin:4px 0 0; font-size:12px; font-weight:600; color:var(--deep);"></div>
+            <div class="chartbox" style="margin-top:6px;"><canvas id="chartAgg"></canvas></div>
+          </div>
+        </div>
+      </div>
+      <div class="tblwrap" id="mtblwrap" style="display:none;">
+        <table id="mtbl"><thead></thead><tbody></tbody></table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const PAGE = 2000; // SQL fetch page size
+const SQL_COLS = ["ord","codigo_fundo","tipo_identificador_fundo","identificador_fundo","tipo_fundo","razao_social_fundo","nome_comercial_fundo","adaptado_rcvm175","moeda","atributo","data_encerramento_fundo","data_vigencia_fundo","data_atualizacao_fundo","administrador","identificador_administrador","gestor","identificador_gestor","codigo_classe","tipo_identificador_classe","identificador_classe","data_inicio_atividade_classe","razao_social_classe","nome_comercial_classe","tributacao_perseguida","alavancado","credito_privado","percentual_permitido_credito_privado","investimento_exterior","percentual_permitido_investimento_exterior","foco_atuacao","fundo_esg","forma_condominio","entidade_investimento_fins_tributarios","infraestrutura","responsabilidade_limitada","categoria_cvm","composicao","tipo_anbima","nivel1_categoria","nivel2_categoria","nivel3_subcategoria","data_encerramento_classe","data_vigencia_classe","data_atualizacao_classe","benchmark","benchmark_data_atualizacao","sufixo","codigo_b3","restricao_investimento","tipo_investidor","aplicacao_automatica","plano_previdencia","periodicidade_envio_pl_cota","calculo_cota","data_atualizacao_perfil","valores_minimos_data_vigencia","indicador_prazo_emissao_cota","prazo_emissao_cota","indicador_prazo_conversao_resgate","prazo_conversao_resgate","indicador_prazo_pagamento_resgate","prazo_pagamento_resgate","regra_adicional_pagamento_resgate","dias_carencia_inicial","dias_carencia_ciclica","valor_minimo_aplicacao_inicial","valor_minimo_aplicacao_subsequente","valor_minimo_resgate","valor_minimo_permanencia","valores_minimos_data_atualizacao","perfil_taxa_performance","periodicidade_cobranca","valor_percentual","indice_referencia","valor_percentual_indice_referencia","valor_taxa_fixa","codigo_subclasse","tipo_identificador_subclasse","identificador_subclasse","nome_comercial_subclasse","data_inicio_atividade_subclasse","data_encerramento_subclasse","data_vigencia_subclasse","data_atualizacao_subclasse"];
+const WITHDEF = "codigo_fundo NVARCHAR(50),tipo_identificador_fundo NVARCHAR(50),identificador_fundo NVARCHAR(50),tipo_fundo NVARCHAR(100),razao_social_fundo NVARCHAR(400),nome_comercial_fundo NVARCHAR(400),adaptado_rcvm175 NVARCHAR(20),moeda NVARCHAR(20),atributo NVARCHAR(100),data_encerramento_fundo NVARCHAR(40),data_vigencia_fundo NVARCHAR(40),data_atualizacao_fundo NVARCHAR(40),administrador NVARCHAR(300),identificador_administrador NVARCHAR(50),gestor NVARCHAR(300),identificador_gestor NVARCHAR(50),codigo_classe NVARCHAR(50),tipo_identificador_classe NVARCHAR(50),identificador_classe NVARCHAR(50),data_inicio_atividade_classe NVARCHAR(40),razao_social_classe NVARCHAR(400),nome_comercial_classe NVARCHAR(400),tributacao_perseguida NVARCHAR(100),alavancado NVARCHAR(20),credito_privado NVARCHAR(20),percentual_permitido_credito_privado NVARCHAR(50),investimento_exterior NVARCHAR(20),percentual_permitido_investimento_exterior NVARCHAR(50),foco_atuacao NVARCHAR(200),fundo_esg NVARCHAR(20),forma_condominio NVARCHAR(50),entidade_investimento_fins_tributarios NVARCHAR(20),infraestrutura NVARCHAR(20),responsabilidade_limitada NVARCHAR(20),categoria_cvm NVARCHAR(100),composicao NVARCHAR(100),tipo_anbima NVARCHAR(200),nivel1_categoria NVARCHAR(200),nivel2_categoria NVARCHAR(200),nivel3_subcategoria NVARCHAR(200),data_encerramento_classe NVARCHAR(40),data_vigencia_classe NVARCHAR(40),data_atualizacao_classe NVARCHAR(40),benchmark NVARCHAR(200),benchmark_data_atualizacao NVARCHAR(40),sufixo NVARCHAR(50),codigo_b3 NVARCHAR(50),restricao_investimento NVARCHAR(20),tipo_investidor NVARCHAR(100),aplicacao_automatica NVARCHAR(20),plano_previdencia NVARCHAR(100),periodicidade_envio_pl_cota NVARCHAR(100),calculo_cota NVARCHAR(50),data_atualizacao_perfil NVARCHAR(40),valores_minimos_data_vigencia NVARCHAR(40),indicador_prazo_emissao_cota NVARCHAR(50),prazo_emissao_cota NVARCHAR(50),indicador_prazo_conversao_resgate NVARCHAR(50),prazo_conversao_resgate NVARCHAR(50),indicador_prazo_pagamento_resgate NVARCHAR(50),prazo_pagamento_resgate NVARCHAR(50),regra_adicional_pagamento_resgate NVARCHAR(200),dias_carencia_inicial NVARCHAR(50),dias_carencia_ciclica NVARCHAR(50),valor_minimo_aplicacao_inicial NVARCHAR(50),valor_minimo_aplicacao_subsequente NVARCHAR(50),valor_minimo_resgate NVARCHAR(50),valor_minimo_permanencia NVARCHAR(50),valores_minimos_data_atualizacao NVARCHAR(40),perfil_taxa_performance NVARCHAR(200),periodicidade_cobranca NVARCHAR(100),valor_percentual NVARCHAR(50),indice_referencia NVARCHAR(100),valor_percentual_indice_referencia NVARCHAR(50),valor_taxa_fixa NVARCHAR(50),codigo_subclasse NVARCHAR(50),tipo_identificador_subclasse NVARCHAR(50),identificador_subclasse NVARCHAR(50),nome_comercial_subclasse NVARCHAR(400),data_inicio_atividade_subclasse NVARCHAR(40),data_encerramento_subclasse NVARCHAR(40),data_vigencia_subclasse NVARCHAR(40),data_atualizacao_subclasse NVARCHAR(40)";
+const LATEST = "WITH latest AS (SELECT TOP 1 ValueJson FROM AssetDataDB.Routines.UnitData WHERE Unit='fundos_anbima_dados_cadastrais' ORDER BY InputDate DESC)";
+const countQuery = () => LATEST + " SELECT COUNT(*) AS n FROM latest CROSS APPLY OPENJSON(latest.ValueJson,'$.FundosAnbimaDadosCadastrais') arr;";
+const pageQuery = (s,e) => LATEST +
+  " SELECT TRY_CAST(arr.[key] AS INT) AS ord, j.* FROM latest" +
+  " CROSS APPLY OPENJSON(latest.ValueJson,'$.FundosAnbimaDadosCadastrais') arr" +
+  " CROSS APPLY OPENJSON(arr.value) WITH (" + WITHDEF + ") j" +
+  " WHERE TRY_CAST(arr.[key] AS INT) >= " + s + " AND TRY_CAST(arr.[key] AS INT) < " + e +
+  " ORDER BY ord;";
+
+// ---- state ----
+let activeCols = [];     // every column in the dataset
+let visibleCols = [];    // columns chosen for preview + export (subset, dataset order)
+let allRows = [];        // full dataset (array of objects)
+let filteredRows = [];   // after filter
+let page = 1;            // 1-based
+let pageSize = 100;
+let localSort = null;    // {col, dir:1|-1} — sort applied to the CURRENT PAGE only
+let localFilters = new Map(); // col -> Set(allowed display values) — current page only
+let lastPageBase = [];   // the current page's raw rows (before local sort/filter)
+let metricIdCols = [];   // cadastral columns shown on the métricas tab
+const IDENT = "__ident__";       // synthetic column: best available CNPJ
+const IDENT_LABEL = "identificador";
+
+const $ = id => document.getElementById(id);
+const setStatus = t => $("status").textContent = t;
+const setErr = t => $("err").textContent = t || "";
+const setFill = p => $("fill").style.width = Math.max(0, Math.min(100, p)) + "%";
+const setSrc = t => { const el = $("src"); if (t){ el.textContent = t; el.style.display = "inline-block"; } else el.style.display = "none"; };
+
+// ---- SQL loader ----
+async function runQuery(sql){
+  const r = await window.cowork.callMcpTool("mcp__ayunit__execute_select_query", { database: "AssetDataDB", query: sql, max_rows: PAGE });
+  if (r && r.isError) throw new Error("Tool returned an error: " + JSON.stringify(r.content || r));
+  let payload = (r && r.structuredContent != null) ? r.structuredContent : null;
+  if (payload == null && r && r.content && r.content[0] && r.content[0].text != null) payload = JSON.parse(r.content[0].text);
+  if (payload == null) throw new Error("Empty response from tool.");
+  let inner = (typeof payload === "string") ? JSON.parse(payload) : payload;
+  if (inner && typeof inner.result === "string") inner = JSON.parse(inner.result);
+  if (inner && inner.status && inner.status !== "success") throw new Error(inner.error || ("Query status: " + inner.status));
+  return inner;
+}
+async function loadFromSql(){
+  disableSources(true); setErr(""); allRows = []; setFill(0); setSrc("");
+  try {
+    setStatus("Counting rows…");
+    const c = await runQuery(countQuery());
+    const total = (c.rows && c.rows[0] && (c.rows[0].n ?? c.rows[0].N)) || 0;
+    if (!total) throw new Error("Could not determine row count.");
+    let start = 0, p = 0, acc = [];
+    while (start < total){
+      p++; const end = start + PAGE;
+      setStatus("Fetching page " + p + " — " + start.toLocaleString() + "–" + Math.min(end,total).toLocaleString() + " of " + total.toLocaleString() + "…");
+      const res = await runQuery(pageQuery(start, end));
+      const rows = res.rows || [];
+      acc = acc.concat(rows);
+      setFill(acc.length / total * 100);
+      if (rows.length === 0) break;
+      start = end;
+      await new Promise(r => setTimeout(r, 0));
+    }
+    activeCols = SQL_COLS.slice();
+    allRows = acc;
+    setSrc("SQL · " + new Date().toLocaleString());
+    onDatasetLoaded();
+    setStatus("Loaded " + allRows.length.toLocaleString() + " rows · " + activeCols.length + " columns.");
+  } catch (e){
+    setErr("Error: " + (e && e.message ? e.message : String(e)));
+    setStatus("Stopped.");
+  } finally {
+    disableSources(false);
+  }
+}
+
+// ---- CSV loader ----
+function parseCSV(text){
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+  const rows = []; let field = "", record = [], inQ = false;
+  for (let i = 0; i < text.length; i++){
+    const ch = text[i];
+    if (inQ){
+      if (ch === '"'){ if (text[i+1] === '"'){ field += '"'; i++; } else inQ = false; }
+      else field += ch;
+    } else {
+      if (ch === '"') inQ = true;
+      else if (ch === ','){ record.push(field); field = ""; }
+      else if (ch === '\n'){ record.push(field); rows.push(record); record = []; field = ""; }
+      else if (ch === '\r'){ /* skip */ }
+      else field += ch;
+    }
+  }
+  if (field.length > 0 || record.length > 0){ record.push(field); rows.push(record); }
+  return rows.filter(r => !(r.length === 1 && r[0] === ""));
+}
+function loadFromCsv(file){
+  disableSources(true); setErr(""); setFill(0); setSrc("");
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const grid = parseCSV(String(reader.result));
+      if (!grid.length) throw new Error("CSV appears to be empty.");
+      const header = grid[0].map(h => h.trim());
+      const objs = [];
+      for (let i = 1; i < grid.length; i++){
+        const row = grid[i]; const o = {};
+        for (let j = 0; j < header.length; j++) o[header[j]] = row[j] !== undefined ? row[j] : "";
+        objs.push(o);
+      }
+      activeCols = header;
+      allRows = objs;
+      setFill(100);
+      setSrc("CSV · " + file.name);
+      onDatasetLoaded();
+      setStatus("Loaded " + allRows.length.toLocaleString() + " rows · " + activeCols.length + " columns from CSV.");
+    } catch (e){
+      setErr("Error parsing CSV: " + (e && e.message ? e.message : String(e)));
+      setStatus("Stopped.");
+    } finally {
+      disableSources(false);
+    }
+  };
+  reader.onerror = () => { setErr("Could not read file."); disableSources(false); };
+  reader.readAsText(file, "UTF-8");
+}
+
+// ---- shared: after any dataset is loaded ----
+function onDatasetLoaded(){
+  // filter: populate the column typeahead + reset to a single empty filter row
+  $("coloptions").innerHTML = activeCols.map(c => '<option value="' + c.replace(/"/g, "&quot;") + '">').join("");
+  $("filters").innerHTML = "";
+  addFilterRow();
+  $("addfilter").disabled = false; $("clearall").disabled = false;
+  // cadastro columns: all visible by default
+  visibleCols = activeCols.slice();
+  buildColPicker();
+  $("colbtn").disabled = false;
+  $("analyze").disabled = false;
+  // métricas identity columns: curated default + its picker
+  metricIdCols = defaultMetricIdCols();
+  buildMetricPicker();
+  $("mcolbtn").disabled = false;
+  page = 1;
+  applyFilter();
+}
+
+// ---- current page rows (what "Analyze" operates on) ----
+function currentPageRows(){
+  const startIdx = (page - 1) * pageSize;
+  return filteredRows.slice(startIdx, startIdx + pageSize);
+}
+
+// ---- column picker ----
+function buildColPicker(){
+  const list = $("collist");
+  const selected = new Set(visibleCols);
+  list.innerHTML = activeCols.map((c, i) =>
+    '<label data-col="'+c+'"><input type="checkbox" data-col="'+c+'"' + (selected.has(c) ? ' checked' : '') + '>' +
+    '<span class="idx">' + (i+1) + '</span> <span>' + c + '</span></label>'
+  ).join("");
+  list.querySelectorAll('input[type=checkbox]').forEach(cb =>
+    cb.addEventListener("change", recomputeVisible)
+  );
+  updateColBtn();
+}
+function recomputeVisible(){
+  const checked = new Set();
+  $("collist").querySelectorAll('input[type=checkbox]:checked').forEach(cb => checked.add(cb.getAttribute("data-col")));
+  visibleCols = activeCols.filter(c => checked.has(c));
+  updateColBtn();
+  render();
+}
+function updateColBtn(){
+  $("colbtn").textContent = "Columns (" + visibleCols.length + "/" + activeCols.length + ") ▾";
+}
+
+// ---- filter (multiple filters combined with AND) ----
+function addFilterRow(col, op, q){
+  const wrap = document.createElement("div");
+  wrap.className = "row frow";
+  wrap.style.marginBottom = "6px";
+  wrap.innerHTML =
+    '<input class="fcol" list="coloptions" placeholder="All columns" style="min-width:180px;">' +
+    '<select class="fop" title="operator">' +
+      '<option value="contains">contains</option>' +
+      '<option value="eq">=</option>' +
+      '<option value="ne">&ne;</option>' +
+      '<option value="in">in</option>' +
+      '<option value="gt">&gt;</option>' +
+      '<option value="ge">&ge;</option>' +
+      '<option value="lt">&lt;</option>' +
+      '<option value="le">&le;</option>' +
+      '<option value="empty">vazio</option>' +
+      '<option value="notempty">não vazio</option>' +
+    '</select>' +
+    '<input class="fq" type="text" placeholder="value…" style="min-width:220px; flex:1;">' +
+    '<span class="fin" style="display:none; flex:1;"><button type="button" class="finbtn">Selecionar valores… ▾</button></span>' +
+    '<button class="frm" title="Remove this filter">×</button>';
+  const fcol = wrap.querySelector(".fcol");
+  const fop = wrap.querySelector(".fop");
+  const fq = wrap.querySelector(".fq");
+  const finbtn = wrap.querySelector(".finbtn");
+  if (col) fcol.value = col;
+  if (op) fop.value = op;
+  if (q) fq.value = q;
+  let t = null;
+  const deb = () => { clearTimeout(t); t = setTimeout(applyFilter, 180); };
+  const onOpChange = () => {
+    const isIn = fop.value === "in";
+    fq.style.display = isIn ? "none" : "";
+    wrap.querySelector(".fin").style.display = isIn ? "inline-flex" : "none";
+    updateFinBtn(wrap);
+    applyFilter();
+  };
+  fcol.addEventListener("input", () => { if (fop.value === "in"){ wrap.__inSet = new Set(); updateFinBtn(wrap); } deb(); });
+  fcol.addEventListener("change", applyFilter);
+  fop.addEventListener("change", onOpChange);
+  fq.addEventListener("input", deb);
+  finbtn.addEventListener("click", e => { e.stopPropagation(); openInMenu(wrap, fcol.value.trim(), finbtn); });
+  wrap.querySelector(".frm").addEventListener("click", () => {
+    wrap.remove();
+    if (!$("filters").querySelector(".frow")) addFilterRow();
+    applyFilter();
+  });
+  $("filters").appendChild(wrap);
+  onOpChange();
+  return wrap;
+}
+function updateFinBtn(wrap){
+  const btn = wrap.querySelector(".finbtn");
+  const n = wrap.__inSet ? wrap.__inSet.size : 0;
+  btn.textContent = n ? (n + " valor" + (n > 1 ? "es" : "") + " selecionado" + (n > 1 ? "s" : "") + " ▾") : "Selecionar valores… ▾";
+  btn.classList.toggle("on", n > 0);
+}
+function positionMenu(menu, anchor){
+  const r = anchor.getBoundingClientRect();
+  menu.style.left = Math.max(6, Math.min(r.left, window.innerWidth - 312)) + "px";
+  menu.style.top = (r.bottom + 4) + "px";
+}
+function openInMenu(wrap, col, anchor){
+  closeHeaderMenu();
+  const menu = document.createElement("div");
+  menu.className = "hmenu"; menu.id = "hmenu";
+  if (!activeCols.includes(col)){
+    menu.innerHTML = '<div class="grp">Escolha primeiro uma coluna válida no campo à esquerda.</div>';
+    document.body.appendChild(menu); positionMenu(menu, anchor);
+    menu.addEventListener("click", e => e.stopPropagation());
+    return;
+  }
+  const seen = new Set(); const vals = []; let truncated = false;
+  for (const r of allRows){ const v = cellVal(r, col); if (!seen.has(v)){ seen.add(v); vals.push(v); if (vals.length >= 2000){ truncated = true; break; } } }
+  vals.sort(cmpLocalVals);
+  const sel = wrap.__inSet || (wrap.__inSet = new Set());
+  menu.innerHTML =
+    (truncated ? '<div class="grp">Muitos valores — mostrando 2000. Use a busca.</div>' : '') +
+    '<input class="hmsearch" type="text" placeholder="buscar valor…">' +
+    '<div class="hmrow"><button data-act="all">Selecionar todos</button><button data-act="none">Limpar</button></div>' +
+    '<div class="hmlist">' + vals.map(v => {
+      const lab = v === "" ? "(vazio)" : v;
+      return '<label data-v="' + encodeURIComponent(v) + '"><input type="checkbox" ' + (sel.has(v) ? "checked" : "") + ' data-v="' + encodeURIComponent(v) + '"><span>' + escapeHtml(lab) + '</span></label>';
+    }).join("") + '</div>';
+  document.body.appendChild(menu); positionMenu(menu, anchor);
+  menu.addEventListener("click", e => e.stopPropagation());
+  const apply = () => {
+    const s = new Set();
+    menu.querySelectorAll(".hmlist input").forEach(cb => { if (cb.checked) s.add(decodeURIComponent(cb.getAttribute("data-v"))); });
+    wrap.__inSet = s;
+    updateFinBtn(wrap);
+    applyFilter();
+  };
+  menu.querySelectorAll("button[data-act]").forEach(b => b.addEventListener("click", () => {
+    const act = b.getAttribute("data-act");
+    if (act === "all") menu.querySelectorAll(".hmlist input").forEach(cb => { const l = cb.closest("label"); if (l.style.display !== "none") cb.checked = true; });
+    if (act === "none") menu.querySelectorAll(".hmlist input").forEach(cb => cb.checked = false);
+    apply();
+  }));
+  menu.querySelectorAll(".hmlist input").forEach(cb => cb.addEventListener("change", apply));
+  const search = menu.querySelector(".hmsearch");
+  search.addEventListener("input", () => {
+    const q = search.value.trim().toLowerCase();
+    menu.querySelectorAll(".hmlist label").forEach(l => {
+      const v = decodeURIComponent(l.getAttribute("data-v")).toLowerCase();
+      l.style.display = (q === "" || v.indexOf(q) !== -1) ? "flex" : "none";
+    });
+  });
+  search.focus();
+}
+function readFilters(){
+  return Array.from($("filters").querySelectorAll(".frow")).map(r => ({
+    col: r.querySelector(".fcol").value.trim(),
+    op: r.querySelector(".fop").value,
+    q: r.querySelector(".fq").value.trim(),
+    values: r.__inSet || null
+  }));
+}
+const isEmptyVal = v => v == null || String(v).trim() === "";
+const VALUE_OPS = new Set(["contains", "eq", "ne", "gt", "ge", "lt", "le"]);
+// does one cell value satisfy the filter's operator + query?
+function cellSatisfies(v, c, f){
+  const op = f.op, qv = f.q;
+  if (op === "empty")    return isEmptyVal(v);
+  if (op === "notempty") return !isEmptyVal(v);
+  if (isEmptyVal(v)) return false; // value-based ops never match an empty cell
+  if (op === "contains"){
+    const q = qv.toLowerCase();
+    if (String(v).toLowerCase().indexOf(q) !== -1) return true;
+    if (CNPJ_COLS.has(c)){
+      const qd = q.replace(/\D/g, "");
+      if (fmtId(v).toLowerCase().indexOf(q) !== -1) return true;
+      if (qd && String(v).replace(/\D/g, "").indexOf(qd) !== -1) return true;
+    }
+    return false;
+  }
+  const nCell = Number(v), nQ = Number(qv);
+  const numeric = qv !== "" && isFinite(nCell) && isFinite(nQ);
+  if (op === "eq") return numeric ? (nCell === nQ) : (String(v).toLowerCase() === qv.toLowerCase());
+  if (op === "ne") return numeric ? (nCell !== nQ) : (String(v).toLowerCase() !== qv.toLowerCase());
+  if (numeric){
+    if (op === "gt") return nCell >  nQ;
+    if (op === "ge") return nCell >= nQ;
+    if (op === "lt") return nCell <  nQ;
+    if (op === "le") return nCell <= nQ;
+  } else {
+    const a = String(v), b = qv;   // lexicographic (works for ISO dates)
+    if (op === "gt") return a >  b;
+    if (op === "ge") return a >= b;
+    if (op === "lt") return a <  b;
+    if (op === "le") return a <= b;
+  }
+  return false;
+}
+function rowMatchesFilter(row, f){
+  const valid = activeCols.includes(f.col) ? f.col : null;
+  if (f.op === "in"){
+    if (!valid || !f.values || !f.values.size) return true; // inactive
+    return f.values.has(cellVal(row, valid));
+  }
+  const cols = valid ? [valid] : activeCols; // unknown/blank column = search all
+  for (const c of cols){
+    if (cellSatisfies(row[c], c, f)) return true;
+  }
+  return false;
+}
+function applyFilter(){
+  const active = readFilters().filter(f => {
+    if (f.op === "in") return !!(f.values && f.values.size);
+    return VALUE_OPS.has(f.op) ? f.q !== "" : true;
+  });
+  filteredRows = active.length
+    ? allRows.filter(row => active.every(f => rowMatchesFilter(row, f)))
+    : allRows;
+  page = 1;
+  resetLocalView();
+  render();
+}
+
+// ---- CNPJ / CPF formatting for identifier columns ----
+const CNPJ_COLS = new Set(["identificador_fundo","identificador_classe","identificador_subclasse","identificador_administrador","identificador_gestor"]);
+function expandSci(s){
+  if (/[eE]/.test(s) && /^[+-]?\d*\.?\d+[eE][+-]?\d+$/.test(s)){
+    const n = Number(s);
+    if (isFinite(n)) return n.toLocaleString("fullwide", { useGrouping: false });
+  }
+  return s;
+}
+function fmtId(v){
+  if (v === null || v === undefined) return "";
+  let s = String(v).trim();
+  if (s === "") return "";
+  const d = expandSci(s).replace(/\D/g, "");
+  if (d.length === 14) return d.slice(0,2)+"."+d.slice(2,5)+"."+d.slice(5,8)+"/"+d.slice(8,12)+"-"+d.slice(12);
+  if (d.length === 11) return d.slice(0,3)+"."+d.slice(3,6)+"."+d.slice(6,9)+"-"+d.slice(9);
+  return s; // leave anything non-standard untouched
+}
+// display value for a cell (formats identifier columns, passes others through)
+function cellVal(row, c){
+  const v = row[c];
+  if (CNPJ_COLS.has(c)) return fmtId(v);
+  return (v === null || v === undefined) ? "" : String(v);
+}
+
+// ---- render table + pager ----
+function totalPages(){ return Math.max(1, Math.ceil(filteredRows.length / pageSize)); }
+function resetLocalView(){ localSort = null; localFilters.clear(); closeHeaderMenu(); }
+function escapeHtml(s){ return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+function copyText(t){
+  try { if (navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(t); return; } } catch (e){}
+  const ta = document.createElement("textarea");
+  ta.value = t; ta.style.position = "fixed"; ta.style.opacity = "0";
+  document.body.appendChild(ta); ta.select();
+  try { document.execCommand("copy"); } catch (e){}
+  ta.remove();
+}
+function cmpLocalVals(a, b){
+  const na = Number(a), nb = Number(b);
+  if (a !== "" && b !== "" && isFinite(na) && isFinite(nb)) return na - nb;
+  return String(a).localeCompare(String(b), "pt-BR", { numeric: true, sensitivity: "base" });
+}
+function cycleSort(col){
+  if (!localSort || localSort.col !== col) localSort = { col, dir: 1 };
+  else if (localSort.dir === 1) localSort = { col, dir: -1 };
+  else localSort = null;
+  render();
+}
+function render(){
+  const thead = $("tbl").querySelector("thead");
+  const tbody = $("tbl").querySelector("tbody");
+  thead.innerHTML = ""; tbody.innerHTML = "";
+  if (!activeCols.length){ $("tblwrap").style.display = "none"; $("pager").style.display = "none"; return; }
+
+  const tp = totalPages();
+  if (page > tp) page = tp;
+  const startIdx = (page - 1) * pageSize;
+  const pageBase = filteredRows.slice(startIdx, startIdx + pageSize);
+  lastPageBase = pageBase;
+
+  // local (current-page) column value filters + sort
+  let disp = pageBase;
+  if (localFilters.size){
+    disp = disp.filter(row => {
+      for (const [col, set] of localFilters){ if (!set.has(cellVal(row, col))) return false; }
+      return true;
+    });
+  }
+  if (localSort){
+    const col = localSort.col, dir = localSort.dir;
+    disp = disp.slice().sort((r1, r2) => dir * cmpLocalVals(cellVal(r1, col), cellVal(r2, col)));
+  }
+
+  // header with sort + per-column value filter
+  const trh = document.createElement("tr");
+  visibleCols.forEach((c, i) => {
+    const th = document.createElement("th");
+    const arrow = (localSort && localSort.col === c) ? (localSort.dir === 1 ? " ▲" : " ▼") : "";
+    const on = localFilters.has(c) ? " on" : "";
+    th.innerHTML = '<span class="hlabel" title="ordenar"><span class="idx">' + (i + 1) + '</span> ' + escapeHtml(c) + arrow + '</span>'
+                 + '<span class="hcaret' + on + '" title="filtrar valores da página">▾</span>';
+    th.querySelector(".hlabel").addEventListener("click", () => cycleSort(c));
+    th.querySelector(".hcaret").addEventListener("click", e => { e.stopPropagation(); openHeaderMenu(c, e.currentTarget); });
+    trh.appendChild(th);
+  });
+  thead.appendChild(trh);
+
+  for (const row of disp){
+    const tr = document.createElement("tr");
+    for (const c of visibleCols){
+      const td = document.createElement("td");
+      const d = cellVal(row, c);
+      td.textContent = d; td.title = d;
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+
+  $("tblwrap").style.display = "block";
+  $("pager").style.display = "flex";
+  const from = filteredRows.length ? startIdx + 1 : 0;
+  const to = startIdx + pageBase.length;
+  const note = (localFilters.size || localSort) ? " · " + disp.length.toLocaleString() + " após ajuste local" : "";
+  $("pinfo").textContent = "Page " + page + " / " + tp + " · rows " + from.toLocaleString() + "–" + to.toLocaleString() + note;
+  $("clearlocal").style.display = (localSort || localFilters.size) ? "inline-block" : "none";
+  $("fstat").textContent = filteredRows.length.toLocaleString() + " of " + allRows.length.toLocaleString() + " rows match";
+  updateFilterHeadStat();
+  $("first").disabled = $("prev").disabled = (page <= 1);
+  $("next").disabled = $("last").disabled = (page >= tp);
+  $("dl").disabled = (filteredRows.length === 0 || visibleCols.length === 0);
+}
+
+// ---- per-column header menu (sort + value filter, current page only) ----
+function closeHeaderMenu(){ const m = document.getElementById("hmenu"); if (m) m.remove(); }
+function openHeaderMenu(col, anchor){
+  closeHeaderMenu();
+  const vals = Array.from(new Set(lastPageBase.map(r => cellVal(r, col)))).sort(cmpLocalVals);
+  const allowed = localFilters.get(col);
+  const isOn = v => !allowed || allowed.has(v);
+  const menu = document.createElement("div");
+  menu.className = "hmenu"; menu.id = "hmenu";
+  menu.innerHTML =
+    '<div class="hmrow"><button data-act="asc">Ordenar ▲</button><button data-act="desc">Ordenar ▼</button><button data-act="nosort">Limpar ordem</button></div>' +
+    '<input class="hmsearch" type="text" placeholder="buscar valor…">' +
+    '<div class="hmrow"><button data-act="all">Selecionar todos</button><button data-act="none">Limpar seleção</button><button data-act="clearcol">✕ Remover filtro</button></div>' +
+    '<div class="hmlist">' + vals.map(v => {
+      const lab = v === "" ? "(vazio)" : v;
+      return '<label data-v="' + encodeURIComponent(v) + '"><input type="checkbox" ' + (isOn(v) ? "checked" : "") + ' data-v="' + encodeURIComponent(v) + '"><span>' + escapeHtml(lab) + '</span></label>';
+    }).join("") + '</div>';
+  document.body.appendChild(menu);
+  const r = anchor.getBoundingClientRect();
+  menu.style.left = Math.max(6, Math.min(r.left, window.innerWidth - 312)) + "px";
+  menu.style.top = (r.bottom + 4) + "px";
+  menu.addEventListener("click", e => e.stopPropagation());
+
+  const apply = () => {
+    const checked = new Set();
+    menu.querySelectorAll(".hmlist input").forEach(cb => { if (cb.checked) checked.add(decodeURIComponent(cb.getAttribute("data-v"))); });
+    if (checked.size === vals.length) localFilters.delete(col); else localFilters.set(col, checked);
+    render(); // rebuilds table; #hmenu lives on body so it stays open
+  };
+  menu.querySelectorAll("button[data-act]").forEach(b => b.addEventListener("click", () => {
+    const act = b.getAttribute("data-act");
+    if (act === "asc"){ localSort = { col, dir: 1 }; render(); closeHeaderMenu(); return; }
+    if (act === "desc"){ localSort = { col, dir: -1 }; render(); closeHeaderMenu(); return; }
+    if (act === "nosort"){ if (localSort && localSort.col === col) localSort = null; render(); closeHeaderMenu(); return; }
+    if (act === "clearcol"){ localFilters.delete(col); render(); closeHeaderMenu(); return; }
+    if (act === "all"){ menu.querySelectorAll(".hmlist input").forEach(cb => cb.checked = true); apply(); }
+    if (act === "none"){ menu.querySelectorAll(".hmlist input").forEach(cb => cb.checked = false); apply(); }
+  }));
+  menu.querySelectorAll(".hmlist input").forEach(cb => cb.addEventListener("change", apply));
+  const search = menu.querySelector(".hmsearch");
+  search.addEventListener("input", () => {
+    const q = search.value.trim().toLowerCase();
+    menu.querySelectorAll(".hmlist label").forEach(l => {
+      const v = decodeURIComponent(l.getAttribute("data-v")).toLowerCase();
+      l.style.display = (q === "" || v.indexOf(q) !== -1) ? "flex" : "none";
+    });
+  });
+  search.focus();
+}
+document.addEventListener("click", closeHeaderMenu);
+
+// ---- download (respects current filter) ----
+function csvCell(v){
+  if (v === null || v === undefined) return "";
+  let s = String(v);
+  if (/[",\n\r]/.test(s)) s = '"' + s.replace(/"/g, '""') + '"';
+  return s;
+}
+function download(){
+  const cols = visibleCols.length ? visibleCols : activeCols;
+  const lines = [ cols.map(csvCell).join(",") ];
+  for (const row of filteredRows) lines.push(cols.map(c => csvCell(cellVal(row, c))).join(","));
+  const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const d = new Date();
+  const stamp = d.getFullYear() + String(d.getMonth()+1).padStart(2,"0") + String(d.getDate()).padStart(2,"0");
+  const tag = (readFilters().some(f => f.q !== "") ? "_filtered" : "");
+  a.href = url; a.download = "fundos_anbima" + tag + "_" + stamp + ".csv";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+function disableSources(on){ $("run").disabled = on; $("file").disabled = on; }
+
+// ==========================================================================
+//  PREÇOS & MÉTRICAS  (ANBIMA historical prices)
+// ==========================================================================
+const HIST_TOOL = "mcp__ayunit__get_anbima_historical_data";
+const codeCache = new Map();     // anbima_code -> metrics object (or {status:'erro...'})
+let metricRows = [];             // [{ row, m }]  aligned to the analyzed page rows
+let selectedIdx = new Set();     // indices into metricRows the dashboard is focused on (empty = all)
+let mLocalSort = null;           // {kk, dir} — sort of the métricas table (analyzed set)
+let mLocalFilters = new Map();   // colKey -> Set(allowed display values) — métricas table
+
+const METRIC_DEFS = [
+  { k: "anbima_code",       label: "anbima_code",      t: "txt"   },
+  { k: "data_ref",          label: "data_ref",         t: "txt"   },
+  { k: "cota_ref",          label: "cota_ref",         t: "cota"  },
+  { k: "daily",             label: "daily_%",          t: "pct"   },
+  { k: "mtd",               label: "MTD_%",            t: "pct"   },
+  { k: "mtd_base",          label: "MTD_base_date",    t: "txt"   },
+  { k: "ytd",               label: "YTD_%",            t: "pct"   },
+  { k: "ytd_base",          label: "YTD_base_date",    t: "txt"   },
+  { k: "patrimonio_atual",  label: "patrimonio_atual", t: "money" },
+  { k: "nav_mtd",           label: "NAV_MTD",          t: "money" },
+  { k: "nav_ytd",           label: "NAV_YTD",          t: "money" },
+  { k: "numero_cotistas",   label: "numero_cotistas",  t: "int"   },
+  { k: "status",            label: "status",           t: "txt"   }
+];
+
+function anbimaCodeFor(row){
+  const sub = (row.codigo_subclasse != null ? String(row.codigo_subclasse) : "").trim();
+  if (sub) return sub;
+  const cls = (row.codigo_classe != null ? String(row.codigo_classe) : "").trim();
+  return cls || null;
+}
+function fundName(row){
+  return row.razao_social_classe || row.nome_comercial_classe || row.razao_social_fundo || row.nome_comercial_fundo || "";
+}
+
+// ---- métricas identity columns (curated, user-extendable) ----
+function defaultMetricIdCols(){
+  const out = [];
+  if (activeCols.includes("razao_social_fundo")) out.push("razao_social_fundo");
+  else if (activeCols.includes("razao_social_classe")) out.push("razao_social_classe");
+  out.push(IDENT);
+  return out;
+}
+function metricIdLabel(c){ return c === IDENT ? IDENT_LABEL : c; }
+function metricIdValue(row, c){
+  if (c === IDENT) return fmtId(row.identificador_subclasse || row.identificador_classe || row.identificador_fundo || "");
+  return cellVal(row, c);
+}
+function buildMetricPicker(){
+  const list = $("mcollist");
+  const opts = [IDENT].concat(activeCols);
+  const sel = new Set(metricIdCols);
+  list.innerHTML = opts.map(c =>
+    '<label data-col="' + c + '"><input type="checkbox" data-col="' + c + '"' + (sel.has(c) ? " checked" : "") + '>' +
+    '<span>' + metricIdLabel(c) + '</span></label>'
+  ).join("");
+  list.querySelectorAll('input[type=checkbox]').forEach(cb => cb.addEventListener("change", onMetricColToggle));
+  updateMcolBtn();
+}
+function onMetricColToggle(e){
+  const c = e.target.getAttribute("data-col");
+  if (e.target.checked){ if (!metricIdCols.includes(c)) metricIdCols.push(c); }
+  else { metricIdCols = metricIdCols.filter(x => x !== c); }
+  updateMcolBtn();
+  if (metricRows.length) renderMetrics();
+}
+function updateMcolBtn(){ $("mcolbtn").textContent = "Columns (" + metricIdCols.length + ") ▾"; }
+
+function parseHist(r){
+  if (r && r.isError) throw new Error("tool error: " + JSON.stringify(r.content || r));
+  let payload = (r && r.structuredContent != null) ? r.structuredContent : null;
+  if (payload == null && r && r.content && r.content[0] && r.content[0].text != null) payload = JSON.parse(r.content[0].text);
+  if (payload == null) throw new Error("empty response");
+  let inner = (typeof payload === "string") ? JSON.parse(payload) : payload;
+  if (inner && typeof inner.result === "string") inner = JSON.parse(inner.result);
+  const content = (inner && inner.data && Array.isArray(inner.data.content)) ? inner.data.content
+                : (Array.isArray(inner) ? inner : null);
+  if (!content){
+    const msg = (inner && (inner.error || inner.response_status || inner.status)) || "no data.content";
+    throw new Error(String(msg));
+  }
+  return content;
+}
+
+// Given the ascending series and a boundary 'YYYY-MM-DD' (exclusive), return the
+// row AS OF the boundary (latest date < boundary); if none (fund started later),
+// return the earliest available row.
+function baseRow(series, boundaryExclusive){
+  let chosen = null;
+  for (const p of series){ if (p.date < boundaryExclusive) chosen = p; else break; }
+  return chosen || series[0];
+}
+
+function computeMetrics(content){
+  const series = content
+    .map(x => ({ date: x.data_competencia, cota: Number(x.valor_cota), pl: Number(x.valor_patrimonio_liquido), cotistas: x.numero_cotistas }))
+    .filter(x => x.date && isFinite(x.cota) && x.cota > 0)
+    .sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+  if (!series.length) return { status: "sem histórico" };
+
+  const latest = series[series.length - 1];
+  const prev = series.length > 1 ? series[series.length - 2] : null;
+  const D = latest.date;
+  const monthStart = D.slice(0, 7) + "-01";     // first day of D's month
+  const yearStart  = D.slice(0, 4) + "-01-01";  // first day of D's year
+  const bM = baseRow(series, monthStart);
+  const bY = baseRow(series, yearStart);
+
+  return {
+    status: "ok",
+    data_ref: D,
+    cota_ref: latest.cota,
+    daily: prev ? (latest.cota / prev.cota - 1) : null,
+    mtd: (bM && bM.cota) ? (latest.cota / bM.cota - 1) : null,
+    mtd_base: bM ? bM.date : null,
+    ytd: (bY && bY.cota) ? (latest.cota / bY.cota - 1) : null,
+    ytd_base: bY ? bY.date : null,
+    patrimonio_atual: latest.pl,
+    nav_mtd: bM ? bM.pl : null,
+    nav_ytd: bY ? bY.pl : null,
+    numero_cotistas: latest.cotistas
+  };
+}
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const isRateLimit = msg => /rate.?limit|429|too many|slow down|throttl/i.test(msg);
+
+// call an MCP tool with retry+backoff on rate limits; parse() turns the result into data (or throws)
+async function callWithRetry(name, args, parse){
+  const MAX = 6; let lastMsg = "falha";
+  for (let attempt = 0; attempt < MAX; attempt++){
+    try {
+      return parse(await window.cowork.callMcpTool(name, args));
+    } catch (e){
+      lastMsg = (e && e.message) ? e.message : String(e);
+      if (isRateLimit(lastMsg) && attempt < MAX - 1){ await sleep(800 * Math.pow(1.8, attempt) + Math.random() * 400); continue; }
+      throw new Error(lastMsg);
+    }
+  }
+  throw new Error(lastMsg);
+}
+
+async function fetchMetrics(code){
+  if (codeCache.has(code)) return codeCache.get(code);
+  const di = (new Date().getFullYear() - 1) + "-12-01"; // capture prior year-end base
+  let m;
+  try {
+    m = computeMetrics(await callWithRetry(HIST_TOOL, { anbima_code: code, data_inicio: di, size: 500 }, parseHist));
+    m.anbima_code = code;
+  } catch (e){
+    m = { status: "erro: " + ((e && e.message) || e), anbima_code: code };
+  }
+  // cache only good price results, so a re-run retries transient failures
+  if (m && (m.status === "ok" || m.status === "sem histórico")) codeCache.set(code, m);
+  return m;
+}
+
+// concurrency-limited runner
+async function runPool(tasks, limit, onDone){
+  let i = 0, done = 0;
+  const workers = new Array(Math.min(limit, tasks.length)).fill(0).map(async () => {
+    while (i < tasks.length){
+      const idx = i++;
+      await tasks[idx]();
+      done++;
+      onDone(done);
+    }
+  });
+  await Promise.all(workers);
+}
+
+async function analyze(){
+  showTab("met");
+  const rows = currentPageRows();
+  $("merr").textContent = "";
+  if (!rows.length){ $("mstatus").textContent = "No rows on the current page."; return; }
+
+  $("analyze").disabled = true; $("mdl").disabled = true;
+  $("mbarwrap").style.display = "block"; $("mfill").style.width = "0%";
+  $("mhint").style.display = "none";
+  $("msummary").style.display = "none";
+
+  // unique codes to fetch
+  const codes = [];
+  const seen = new Set();
+  for (const row of rows){
+    const c = anbimaCodeFor(row);
+    if (c && !seen.has(c) && !codeCache.has(c)){ seen.add(c); codes.push(c); }
+  }
+  const totalFetch = codes.length;
+  $("mstatus").textContent = "Fetching " + totalFetch + " fund" + (totalFetch === 1 ? "" : "s") + "…";
+
+  const results = new Map();
+  const tasks = codes.map(c => async () => { results.set(c, await fetchMetrics(c)); });
+  await runPool(tasks, 3, done => {   // low concurrency to stay under the MCP rate limit
+    $("mfill").style.width = (totalFetch ? done / totalFetch * 100 : 100) + "%";
+    $("mstatus").textContent = "Fetched " + done + " / " + totalFetch + " fund" + (totalFetch === 1 ? "" : "s") + "…";
+  });
+
+  // assemble aligned metric rows (this run's results, or cached successes)
+  metricRows = rows.map(row => {
+    const c = anbimaCodeFor(row);
+    if (!c) return { row, m: { status: "sem código classe/subclasse" } };
+    const m = (codeCache.has(c) ? codeCache.get(c) : results.get(c)) || { status: "erro: sem retorno", anbima_code: c };
+    return { row, m };
+  });
+
+  $("mfill").style.width = "100%";
+  const okCount = metricRows.filter(x => x.m && x.m.status === "ok").length;
+  $("mstatus").textContent = metricRows.length + " funds · " + okCount + " with price history · analyzed on " + new Date().toLocaleString();
+  selectedIdx.clear();
+  mLocalSort = null; mLocalFilters.clear();
+  renderMetrics();
+  refreshDashboard();
+  $("mdl").disabled = metricRows.length === 0;
+  $("analyze").disabled = false;
+}
+
+// ---- metric formatting ----
+function fmtPct(x){
+  if (x == null || !isFinite(x)) return { txt: "n/a", cls: "na" };
+  const v = x * 100;
+  return { txt: (v >= 0 ? "+" : "") + v.toFixed(2) + "%", cls: v > 0 ? "pos" : (v < 0 ? "neg" : "") };
+}
+function fmtMoney(x){
+  if (x == null || !isFinite(x)) return "n/a";
+  return Number(x).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function fmtCota(x){
+  if (x == null || !isFinite(x)) return "n/a";
+  return Number(x).toLocaleString("pt-BR", { minimumFractionDigits: 6, maximumFractionDigits: 8 });
+}
+function fmtInt(x){
+  if (x == null || x === "" || !isFinite(Number(x))) return "";
+  return Number(x).toLocaleString("pt-BR");
+}
+
+// column descriptors for the métricas table (cadastral id cols + metric cols)
+function metCols(){
+  const cols = metricIdCols.map(c => ({ kind: "id", key: c, label: metricIdLabel(c), kk: "id:" + c }));
+  for (const d of METRIC_DEFS) cols.push({ kind: "met", key: d.k, t: d.t, label: d.label, kk: "met:" + d.k });
+  return cols;
+}
+const NUM_METRIC_TYPES = new Set(["pct", "money", "cota", "int"]);
+function metDisp(entry, dc){
+  if (dc.kind === "id") return metricIdValue(entry.row, dc.key);
+  const v = entry.m ? entry.m[dc.key] : null;
+  if (dc.t === "pct") return fmtPct(v).txt;
+  if (dc.t === "money") return fmtMoney(v);
+  if (dc.t === "cota") return fmtCota(v);
+  if (dc.t === "int") return fmtInt(v);
+  return (v == null ? "" : String(v));
+}
+function cmpMet(a, b, dc, dir){
+  if (dc.kind === "met" && NUM_METRIC_TYPES.has(dc.t)){
+    const va = a.m ? Number(a.m[dc.key]) : NaN, vb = b.m ? Number(b.m[dc.key]) : NaN;
+    const na = isFinite(va), nb = isFinite(vb);
+    if (!na && !nb) return 0;
+    if (!na) return 1;   // missing values always last
+    if (!nb) return -1;
+    return dir * (va - vb);
+  }
+  return dir * cmpLocalVals(metDisp(a, dc), metDisp(b, dc));
+}
+function toggleMetSort(kk){
+  if (!mLocalSort || mLocalSort.kk !== kk) mLocalSort = { kk, dir: 1 };
+  else if (mLocalSort.dir === 1) mLocalSort = { kk, dir: -1 };
+  else mLocalSort = null;
+  renderMetrics();
+}
+function renderMetrics(){
+  const thead = $("mtbl").querySelector("thead");
+  const tbody = $("mtbl").querySelector("tbody");
+  thead.innerHTML = ""; tbody.innerHTML = "";
+  const cols = metCols();
+
+  // drop local ops that point at columns no longer shown
+  const keys = new Set(cols.map(dc => dc.kk));
+  for (const k of Array.from(mLocalFilters.keys())) if (!keys.has(k)) mLocalFilters.delete(k);
+  if (mLocalSort && !keys.has(mLocalSort.kk)) mLocalSort = null;
+
+  // rows carry their original index (for selection + drill-down)
+  let list = metricRows.map((entry, idx) => ({ entry, idx }));
+  if (mLocalFilters.size){
+    list = list.filter(({ entry }) => {
+      for (const dc of cols){ const set = mLocalFilters.get(dc.kk); if (set && !set.has(metDisp(entry, dc))) return false; }
+      return true;
+    });
+  }
+  if (mLocalSort){
+    const dc = cols.find(c => c.kk === mLocalSort.kk);
+    if (dc) list = list.slice().sort((A, B) => cmpMet(A.entry, B.entry, dc, mLocalSort.dir));
+  }
+
+  // header with sort + per-column value filter
+  const trh = document.createElement("tr");
+  cols.forEach(dc => {
+    const th = document.createElement("th");
+    if (dc.kind === "met") th.classList.add("metric");
+    const arrow = (mLocalSort && mLocalSort.kk === dc.kk) ? (mLocalSort.dir === 1 ? " ▲" : " ▼") : "";
+    const on = mLocalFilters.has(dc.kk) ? " on" : "";
+    th.innerHTML = '<span class="hlabel" title="ordenar">' + escapeHtml(dc.label) + arrow + '</span>' +
+                   '<span class="hcaret' + on + '" title="filtrar valores da página">▾</span>';
+    th.querySelector(".hlabel").addEventListener("click", () => toggleMetSort(dc.kk));
+    th.querySelector(".hcaret").addEventListener("click", e => { e.stopPropagation(); openMetHeaderMenu(dc, e.currentTarget); });
+    trh.appendChild(th);
+  });
+  thead.appendChild(trh);
+
+  for (const { entry, idx } of list){
+    const { row, m } = entry;
+    const tr = document.createElement("tr");
+    tr.dataset.idx = idx;
+    if (selectedIdx.has(idx)) tr.classList.add("sel");
+    tr.addEventListener("click", () => toggleSelect(idx));
+    for (const dc of cols){
+      const td = document.createElement("td");
+      if (dc.kind === "id"){
+        const disp = metricIdValue(row, dc.key);
+        td.textContent = disp; td.title = disp;
+      } else {
+        const v = m ? m[dc.key] : null;
+        if (dc.t === "pct"){ const f = fmtPct(v); td.textContent = f.txt; td.className = "metric num " + f.cls; }
+        else if (dc.t === "money"){ td.textContent = fmtMoney(v); td.className = "metric num"; }
+        else if (dc.t === "cota"){ td.textContent = fmtCota(v); td.className = "metric num"; }
+        else if (dc.t === "int"){ td.textContent = fmtInt(v); td.className = "metric num"; }
+        else { td.textContent = (v == null ? "" : String(v)); td.className = "metric"; }
+        td.title = td.textContent;
+      }
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+  $("mtblwrap").style.display = "block";
+  $("mclearlocal").style.display = (mLocalSort || mLocalFilters.size) ? "inline-block" : "none";
+}
+function openMetHeaderMenu(dc, anchor){
+  closeHeaderMenu();
+  const vals = Array.from(new Set(metricRows.map(e => metDisp(e, dc)))).sort(cmpLocalVals);
+  const allowed = mLocalFilters.get(dc.kk);
+  const isOn = v => !allowed || allowed.has(v);
+  const menu = document.createElement("div");
+  menu.className = "hmenu"; menu.id = "hmenu";
+  menu.innerHTML =
+    '<div class="hmrow"><button data-act="asc">Ordenar ▲</button><button data-act="desc">Ordenar ▼</button><button data-act="nosort">Limpar ordem</button></div>' +
+    '<input class="hmsearch" type="text" placeholder="buscar valor…">' +
+    '<div class="hmrow"><button data-act="all">Selecionar todos</button><button data-act="none">Limpar seleção</button><button data-act="clearcol">✕ Remover filtro</button></div>' +
+    '<div class="hmlist">' + vals.map(v => {
+      const lab = v === "" ? "(vazio)" : v;
+      return '<label data-v="' + encodeURIComponent(v) + '"><input type="checkbox" ' + (isOn(v) ? "checked" : "") + ' data-v="' + encodeURIComponent(v) + '"><span>' + escapeHtml(lab) + '</span></label>';
+    }).join("") + '</div>';
+  document.body.appendChild(menu);
+  const r = anchor.getBoundingClientRect();
+  menu.style.left = Math.max(6, Math.min(r.left, window.innerWidth - 312)) + "px";
+  menu.style.top = (r.bottom + 4) + "px";
+  menu.addEventListener("click", e => e.stopPropagation());
+
+  const apply = () => {
+    const checked = new Set();
+    menu.querySelectorAll(".hmlist input").forEach(cb => { if (cb.checked) checked.add(decodeURIComponent(cb.getAttribute("data-v"))); });
+    if (checked.size === vals.length) mLocalFilters.delete(dc.kk); else mLocalFilters.set(dc.kk, checked);
+    renderMetrics();
+  };
+  menu.querySelectorAll("button[data-act]").forEach(b => b.addEventListener("click", () => {
+    const act = b.getAttribute("data-act");
+    if (act === "asc"){ mLocalSort = { kk: dc.kk, dir: 1 }; renderMetrics(); closeHeaderMenu(); return; }
+    if (act === "desc"){ mLocalSort = { kk: dc.kk, dir: -1 }; renderMetrics(); closeHeaderMenu(); return; }
+    if (act === "nosort"){ if (mLocalSort && mLocalSort.kk === dc.kk) mLocalSort = null; renderMetrics(); closeHeaderMenu(); return; }
+    if (act === "clearcol"){ mLocalFilters.delete(dc.kk); renderMetrics(); closeHeaderMenu(); return; }
+    if (act === "all"){ menu.querySelectorAll(".hmlist input").forEach(cb => cb.checked = true); apply(); }
+    if (act === "none"){ menu.querySelectorAll(".hmlist input").forEach(cb => cb.checked = false); apply(); }
+  }));
+  menu.querySelectorAll(".hmlist input").forEach(cb => cb.addEventListener("change", apply));
+  const search = menu.querySelector(".hmsearch");
+  search.addEventListener("input", () => {
+    const q = search.value.trim().toLowerCase();
+    menu.querySelectorAll(".hmlist label").forEach(l => {
+      const v = decodeURIComponent(l.getAttribute("data-v")).toLowerCase();
+      l.style.display = (q === "" || v.indexOf(q) !== -1) ? "flex" : "none";
+    });
+  });
+  search.focus();
+}
+
+// ---- summary: KPI cards + charts ----
+let chRet = null, chAgg = null, lastOk = [];
+const TEAL_RAMP = ["#8ec4cc", "#0099A5", "#295566", "#00283b"]; // light → dark, by magnitude
+const PIE_COLORS = ["#0099A5", "#295566", "#00283b", "#a55819", "#8ec4cc", "#a59484", "#afdadd", "#12805c", "#6b7280"];
+function shortName(row){
+  const nm = fundName(row) || anbimaCodeFor(row) || "—";
+  return nm.length > 34 ? nm.slice(0, 32) + "…" : nm;
+}
+function buildSummary(rows){
+  const ok = rows.filter(x => x.m && x.m.status === "ok");
+  const box = $("msummary");
+  if (!ok.length){ box.style.display = "none"; return; }
+  box.style.display = "block";
+
+  const total = metricRows.length;
+  const sumPat = ok.reduce((s, x) => s + (isFinite(x.m.patrimonio_atual) ? x.m.patrimonio_atual : 0), 0);
+  const mtds = ok.map(x => x.m.mtd).filter(v => v != null && isFinite(v));
+  const ytds = ok.map(x => x.m.ytd).filter(v => v != null && isFinite(v));
+  const avg = a => a.length ? a.reduce((s, v) => s + v, 0) / a.length : null;
+  const avgMtd = avg(mtds), avgYtd = avg(ytds);
+  const posMtd = mtds.filter(v => v > 0).length;
+  const posYtd = ytds.filter(v => v > 0).length;
+  const pct = v => v == null ? "n/a" : ((v >= 0 ? "+" : "") + (v * 100).toFixed(2) + "%");
+  const cls = v => v == null ? "" : (v > 0 ? "pos" : (v < 0 ? "neg" : ""));
+  const brl = v => "R$ " + Number(v).toLocaleString("pt-BR", { maximumFractionDigits: 0 });
+  const card = (lbl, val, c, accent) => '<div class="kpi" style="border-left:4px solid ' + (accent || "var(--teal)") + '"><div class="lbl">' + lbl + '</div><div class="val ' + (c || "") + '">' + val + '</div></div>';
+
+  $("mcards").innerHTML =
+    card("Fundos c/ preço", ok.length + " / " + total, "", "#a59484") +
+    card("Patrimônio total", brl(sumPat), "", "#00283b") +
+    card("Média MTD", pct(avgMtd), cls(avgMtd), "#0099A5") +
+    card("Média YTD", pct(avgYtd), cls(avgYtd), "#295566") +
+    card("MTD positivos", posMtd + " / " + mtds.length, "", "#8ec4cc") +
+    card("YTD positivos", posYtd + " / " + ytds.length, "", "#afdadd");
+
+  drawCharts(ok);
+}
+// dashboard reflects the current selection (or all rows when nothing is selected)
+function refreshDashboard(){
+  const rows = selectedIdx.size ? metricRows.filter((_, i) => selectedIdx.has(i)) : metricRows;
+  buildSummary(rows);
+  updateSelBar();
+}
+function toggleSelect(idx){
+  if (selectedIdx.has(idx)) selectedIdx.delete(idx); else selectedIdx.add(idx);
+  const tr = $("mtbl").querySelector('tbody tr[data-idx="' + idx + '"]');
+  if (tr) tr.classList.toggle("sel", selectedIdx.has(idx));
+  refreshDashboard();
+}
+function updateSelBar(){
+  const bar = $("selbar");
+  if (!selectedIdx.size){ bar.style.display = "none"; return; }
+  bar.style.display = "flex";
+  const chosen = metricRows.filter((_, i) => selectedIdx.has(i));
+  const okc = chosen.filter(x => x.m && x.m.status === "ok").length;
+  const label = selectedIdx.size === 1
+    ? (fundName(chosen[0].row) || anbimaCodeFor(chosen[0].row) || "—")
+    : (selectedIdx.size + " fundos selecionados");
+  $("seltext").textContent = "Dashboard focado em: " + label + (okc === 0 ? " — sem histórico de preços" : "");
+}
+function rankBar(canvasId, titleId, titleBase, ok, getv){
+  const withv = ok.filter(x => { const v = getv(x); return v != null && isFinite(v); });
+  const sorted = withv.slice().sort((a, b) => getv(b) - getv(a));
+  const top = sorted.slice(0, 25);
+  if (titleId) $(titleId).textContent = titleBase + (sorted.length > 25 ? " (top 25 de " + sorted.length + ")" : "");
+  const labels = top.map(x => shortName(x.row));
+  const vals = top.map(x => +(getv(x) * 100).toFixed(2));
+  const maxAbs = Math.max(1, ...vals.map(v => Math.abs(v)));
+  const colors = vals.map(v => v < 0 ? "#a55819" : TEAL_RAMP[Math.min(TEAL_RAMP.length - 1, Math.floor((Math.abs(v) / maxAbs) * TEAL_RAMP.length))]);
+  return new Chart($(canvasId), {
+    type: "bar",
+    data: { labels, datasets: [{ label: titleBase, data: vals, backgroundColor: colors, borderRadius: 3 }] },
+    options: {
+      indexAxis: "y", responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => " " + c.parsed.x.toFixed(2) + "%" } } },
+      scales: { x: { ticks: { callback: v => v + "%" }, grid: { color: "#eef4f5" } }, y: { ticks: { font: { size: 10 } }, grid: { display: false } } }
+    }
+  });
+}
+function drawCharts(ok){
+  if (typeof Chart === "undefined") return;
+  lastOk = ok;
+  drawRet();
+  drawAgg();
+}
+function drawRet(){
+  if (chRet){ chRet.destroy(); chRet = null; }
+  const key = $("retSel").value; // 'ytd' | 'mtd'
+  chRet = rankBar("chartRet", "chartRetTitle", "Retorno " + key.toUpperCase() + " por fundo", lastOk, x => x.m[key]);
+}
+function drawAgg(){
+  if (chAgg){ chAgg.destroy(); chAgg = null; }
+  const col = $("aggSel").value;
+  const groups = new Map();
+  for (const x of lastOk){
+    const pat = x.m.patrimonio_atual;
+    if (pat == null || !isFinite(pat)) continue;
+    let k = x.row[col];
+    k = (k == null || String(k).trim() === "") ? "(vazio)" : String(k);
+    groups.set(k, (groups.get(k) || 0) + pat);
+  }
+  let arr = Array.from(groups.entries()).sort((a, b) => b[1] - a[1]);
+  const TOPN = 8;
+  if (arr.length > TOPN){
+    const rest = arr.slice(TOPN).reduce((s, e) => s + e[1], 0);
+    arr = arr.slice(0, TOPN).concat([["Outros", rest]]);
+  }
+  const labels = arr.map(e => e[0]);
+  const data = arr.map(e => e[1]);
+  const colors = arr.map((e, i) => PIE_COLORS[i % PIE_COLORS.length]);
+  const totalPat = data.reduce((s, v) => s + v, 0);
+  const fmtAgg = i => labels[i] + ": R$ " + Number(data[i]).toLocaleString("pt-BR", { maximumFractionDigits: 0 }) + " (" + (totalPat ? (data[i] / totalPat * 100).toFixed(1) : 0) + "%)";
+  chAgg = new Chart($("chartAgg"), {
+    type: "doughnut",
+    data: { labels, datasets: [{ data, backgroundColor: colors, borderColor: "#fff", borderWidth: 1 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false, cutout: "55%",
+      plugins: {
+        legend: {
+          position: "right",
+          onHover: (e, item) => { $("aggCap").textContent = fmtAgg(item.index); if (e.native && e.native.target) e.native.target.style.cursor = "pointer"; },
+          onLeave: (e) => { $("aggCap").textContent = ""; if (e.native && e.native.target) e.native.target.style.cursor = "default"; },
+          labels: {
+            boxWidth: 12, font: { size: 10 },
+            generateLabels: (chart) => {
+              const ds = chart.data.datasets[0];
+              const MAX_LEG = 10;
+              return chart.data.labels.slice(0, MAX_LEG).map((lab, i) => ({
+                text: lab.length > 22 ? lab.slice(0, 20) + "…" : lab,
+                fillStyle: ds.backgroundColor[i], strokeStyle: "#fff", lineWidth: 1, index: i
+              }));
+            }
+          }
+        },
+        tooltip: { callbacks: { label: c => " " + fmtAgg(c.dataIndex) } }
+      }
+    }
+  });
+}
+
+function downloadMetrics(){
+  const idCols = metricIdCols.slice();
+  const header = idCols.map(metricIdLabel).concat(METRIC_DEFS.map(d => d.label));
+  const lines = [ header.map(csvCell).join(",") ];
+  for (const { row, m } of metricRows){
+    const cad = idCols.map(c => csvCell(metricIdValue(row, c)));
+    const met = METRIC_DEFS.map(d => {
+      const v = m ? m[d.k] : null;
+      if (v == null || v === "") return "";
+      if (d.t === "pct") return isFinite(v) ? (v * 100).toFixed(4) : "";   // percentage as number, e.g. 1.2345
+      if (d.t === "money" || d.t === "cota" || d.t === "int") return isFinite(Number(v)) ? String(v) : "";
+      return csvCell(v);
+    });
+    lines.push(cad.concat(met).join(","));
+  }
+  const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const d = new Date();
+  const stamp = d.getFullYear() + String(d.getMonth()+1).padStart(2,"0") + String(d.getDate()).padStart(2,"0");
+  a.href = url; a.download = "fundos_metricas_" + stamp + ".csv";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+function showTab(which){
+  const cad = (which === "cad");
+  $("tabCad").classList.toggle("active", cad);
+  $("tabMet").classList.toggle("active", !cad);
+  $("paneCad").style.display = cad ? "block" : "none";
+  $("paneMet").style.display = cad ? "none" : "block";
+  // hide cadastro-only toolbar controls when on the métricas tab
+  const cadColpick = $("colbtn").closest(".colpick");
+  if (cadColpick) cadColpick.style.display = cad ? "" : "none";
+  $("dl").style.display = cad ? "" : "none";
+}
+$("tabCad").addEventListener("click", () => showTab("cad"));
+$("tabMet").addEventListener("click", () => showTab("met"));
+$("analyze").addEventListener("click", analyze);
+$("mdl").addEventListener("click", downloadMetrics);
+$("retSel").addEventListener("change", () => { if (lastOk.length) drawRet(); });
+$("aggSel").addEventListener("change", () => { if (lastOk.length) drawAgg(); });
+$("selclear").addEventListener("click", () => {
+  selectedIdx.clear();
+  $("mtbl").querySelectorAll("tbody tr.sel").forEach(tr => tr.classList.remove("sel"));
+  refreshDashboard();
+});
+
+// ---- filter add / clear ----
+$("addfilter").addEventListener("click", () => { addFilterRow(); });
+$("clearall").addEventListener("click", () => { $("filters").innerHTML = ""; addFilterRow(); applyFilter(); });
+
+// ---- filter collapse / expand ----
+let filterCollapsed = false;
+function updateFilterHeadStat(){
+  $("fheadstat").textContent = (filterCollapsed && allRows.length)
+    ? ("· " + filteredRows.length.toLocaleString() + " / " + allRows.length.toLocaleString() + " match")
+    : "";
+}
+function setFilterCollapsed(c){
+  filterCollapsed = c;
+  $("filterbody").style.display = c ? "none" : "block";
+  $("fcaret").classList.toggle("closed", c);
+  updateFilterHeadStat();
+}
+$("filterhead").addEventListener("click", () => setFilterCollapsed(!filterCollapsed));
+
+// ---- data source collapse / expand ----
+$("sourcehead").addEventListener("click", () => {
+  const body = $("sourcebody");
+  const open = body.style.display !== "none";
+  body.style.display = open ? "none" : "block";
+  $("scaret").classList.toggle("closed", open);
+});
+
+// column picker interactions
+$("colbtn").addEventListener("click", e => {
+  e.stopPropagation();
+  const p = $("colpanel");
+  p.style.display = (p.style.display === "none") ? "block" : "none";
+});
+$("colpanel").addEventListener("click", e => e.stopPropagation());
+document.addEventListener("click", () => { $("colpanel").style.display = "none"; });
+$("colall").addEventListener("click", () => {
+  $("collist").querySelectorAll('input[type=checkbox]').forEach(cb => cb.checked = true);
+  recomputeVisible();
+});
+$("colnone").addEventListener("click", () => {
+  $("collist").querySelectorAll('input[type=checkbox]').forEach(cb => cb.checked = false);
+  recomputeVisible();
+});
+$("colsearch").addEventListener("input", e => {
+  const q = e.target.value.trim().toLowerCase();
+  $("collist").querySelectorAll('label').forEach(l => {
+    const c = l.getAttribute("data-col").toLowerCase();
+    l.classList.toggle("hidden", q !== "" && c.indexOf(q) === -1);
+  });
+});
+
+// métricas column picker interactions
+$("mcolbtn").addEventListener("click", e => {
+  e.stopPropagation();
+  const p = $("mcolpanel");
+  p.style.display = (p.style.display === "none") ? "block" : "none";
+});
+$("mcolpanel").addEventListener("click", e => e.stopPropagation());
+document.addEventListener("click", () => { $("mcolpanel").style.display = "none"; });
+$("mcoldef").addEventListener("click", () => { metricIdCols = defaultMetricIdCols(); buildMetricPicker(); if (metricRows.length) renderMetrics(); });
+$("mcolsearch").addEventListener("input", e => {
+  const q = e.target.value.trim().toLowerCase();
+  $("mcollist").querySelectorAll('label').forEach(l => {
+    const c = l.getAttribute("data-col").toLowerCase();
+    l.classList.toggle("hidden", q !== "" && c.indexOf(q) === -1);
+  });
+});
+
+$("run").addEventListener("click", loadFromSql);
+$("file").addEventListener("change", e => { const f = e.target.files && e.target.files[0]; if (f) loadFromCsv(f); e.target.value = ""; });
+$("dl").addEventListener("click", download);
+$("clearlocal").addEventListener("click", () => { resetLocalView(); render(); });
+$("mclearlocal").addEventListener("click", () => { mLocalSort = null; mLocalFilters.clear(); closeHeaderMenu(); renderMetrics(); });
+$("first").addEventListener("click", () => { page = 1; resetLocalView(); render(); });
+$("prev").addEventListener("click", () => { if (page > 1){ page--; resetLocalView(); render(); } });
+$("next").addEventListener("click", () => { if (page < totalPages()){ page++; resetLocalView(); render(); } });
+$("last").addEventListener("click", () => { page = totalPages(); resetLocalView(); render(); });
+$("psize").addEventListener("change", e => { pageSize = parseInt(e.target.value, 10) || 100; page = 1; resetLocalView(); render(); });
+</script>
+</body>
+</html>
