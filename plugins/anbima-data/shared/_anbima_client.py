@@ -51,22 +51,26 @@ _ENV_LOADED = False
 
 
 def _load_env() -> None:
-    """Load credentials from .env files (first-wins, then OS env).
+    """Load credentials. Real OS environment variables are the source of truth.
 
-    Precedence (python-dotenv default is override=False → first non-empty
-    value wins, then any real OS env var wins over both):
-      1. Plugin-local `.env`         — dev workflow when editing this repo.
-      2. User-level `~/.anbima-data.env` — fallback for installed plugins
-         (Claude Desktop, marketplace installs) where the plugin folder is
-         read-only or unknown to the user. Lives entirely outside any repo.
+    Precedence (highest wins, never overridden):
+      1. Real OS environment variables (Windows `setx`, Unix `export`).
+         python-dotenv is called with override=False, so anything already
+         present in os.environ is never touched. This is the intended
+         production path for Claude Desktop / marketplace installs.
+      2. Plugin-local `.env` at `<plugin-root>/.env`  — dev workflow when
+         editing this repo. Gitignored.
+      3. User-level `.env` at `~/.anbima-data.env`   — fallback for machines
+         where OS env vars aren't set and the plugin folder is read-only.
 
-    Neither file is required. Missing files are ignored silently.
+    Missing files are ignored silently. Steps 2/3 fill in only what step 1
+    left unset.
     """
     global _ENV_LOADED
     if _ENV_LOADED:
         return
-    load_dotenv(_PLUGIN_ROOT / ".env")
-    load_dotenv(Path.home() / ".anbima-data.env")
+    load_dotenv(_PLUGIN_ROOT / ".env", override=False)
+    load_dotenv(Path.home() / ".anbima-data.env", override=False)
     _ENV_LOADED = True
 
 
