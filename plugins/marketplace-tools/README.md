@@ -1,15 +1,16 @@
 # marketplace-tools
 
-Meta-plugin holding review skills for the sten-ayunit marketplace. Used
-interactively in Claude Code chat to audit candidate contributions
-(SKILL.md files, HTML live-artifacts) *before* they land in a domain
-plugin — whether the candidate came from a colleague or from your own
-authoring session.
+Meta-plugin for **authoring** and **reviewing** candidate contributions
+to the sten-ayunit marketplace. Used interactively in Claude Code chat
+to draft new SKILL.md files with the Ayunit MCP as ground truth, and to
+audit candidate contributions (SKILL.md files, HTML live-artifacts)
+*before* they land in a domain plugin — whether the candidate came from
+a colleague or from your own authoring session.
 
-Both review skills are **interactive** and **scoped by the user prompt**.
-They do not run in CI, do not modify the candidate file, and do not
-require any external service beyond the Ayunit MCP (which the skills use
-live to verify referenced tools, procedures, tables, and docs).
+Skills and commands are **interactive** and **scoped by the user
+prompt**. They do not run in CI, do not modify sibling files, and do not
+require any external service beyond the Ayunit MCP (which they use live
+to verify referenced tools, procedures, tables, and docs).
 
 ## Skills
 
@@ -17,6 +18,12 @@ live to verify referenced tools, procedures, tables, and docs).
 |---|---|---|
 | `skill-review` | Candidate `SKILL.md` at any path | Markdown VERDICT report + line-referenced findings |
 | `artifact-review` | Candidate HTML at any path (typically `live-artifacts/*.html`) | Markdown VERDICT report + line-referenced findings |
+
+## Commands
+
+| Command | Purpose |
+|---|---|
+| `/skill-new [target-plugin-or-intent]` | Ayunit-aware skill-creator flow: surfaces the MCP doc catalogue up-front, live-verifies every referenced tool / SQL object / doc URI, and writes the new SKILL.md only after the user approves the drafted frontmatter + outline. Suggested follow-up: `skill-review` on the freshly written path. |
 
 ## Requirements
 

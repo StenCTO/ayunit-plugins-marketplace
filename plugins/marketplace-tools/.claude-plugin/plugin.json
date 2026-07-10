@@ -1,12 +1,12 @@
 {
   "name": "marketplace-tools",
-  "version": "0.1.0",
-  "description": "Meta-plugin for reviewing candidate contributions to the sten-ayunit marketplace. Skills: skill-review (audits a candidate SKILL.md against a target plugin's conventions AND live-checks references against the Ayunit MCP tool surface + docs); artifact-review (audits a candidate live-artifact HTML for Cowork bridge usage, MCP-tool existence, sibling consistency, and security hygiene). Both emit a structured VERDICT report (accept new / merge into sibling / reject) with actionable, line-referenced findings.",
+  "version": "0.2.0",
+  "description": "Meta-plugin for authoring and reviewing candidate contributions to the sten-ayunit marketplace. Skills: skill-review (audits a candidate SKILL.md against a target plugin's conventions AND live-checks references against the Ayunit MCP tool surface + docs); artifact-review (audits a candidate live-artifact HTML for Cowork bridge usage, MCP-tool existence, sibling consistency, and security hygiene). Commands: /skill-new (Ayunit-aware skill-creator flow that surfaces the MCP doc catalogue up-front and live-verifies every reference before writing the SKILL.md).",
   "author": {
     "name": "Sten Capital"
   },
   "keywords": [
     "ayunit", "marketplace", "meta", "review", "quality",
-    "skill-review", "artifact-review", "governance"
+    "skill-review", "artifact-review", "skill-new", "authoring", "governance"
   ]
 }
