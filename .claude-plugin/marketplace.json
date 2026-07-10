@@ -32,6 +32,11 @@
       "name": "anbima-data",
       "source": "./plugins/anbima-data",
       "description": "ANBIMA skills for Brazilian investment funds — thin routing layer over the Ayunit MCP (no bundled Python, no credentials). Data skills: anbima-funds-data (cadastral registry), anbima-funds-historical-data (NAV/PL/cota series). Live-artifact skill: anbima-funds-explorer (interactive HTML dashboard, Cowork-optimised). Cross-surface: Claude Code, Claude Desktop, Claude Cowork."
+    },
+    {
+      "name": "marketplace-tools",
+      "source": "./plugins/marketplace-tools",
+      "description": "Meta-plugin for interactive review of candidate contributions to this marketplace. Skills: skill-review (audits a candidate SKILL.md against a target plugin and live-verifies Ayunit MCP references + docs); artifact-review (audits a candidate live-artifact HTML for MCP-tool existence, Cowork bridge usage, sibling consistency, and security hygiene). Emits VERDICT reports (ACCEPT_NEW / MERGE_INTO_SIBLING / REJECT). Ayunit-MCP-only; no credentials, no bundled code."
     }
   ]
 }
