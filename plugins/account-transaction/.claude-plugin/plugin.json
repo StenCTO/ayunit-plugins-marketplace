@@ -1,12 +1,12 @@
 {
   "name": "account-transaction",
   "version": "0.9.1",
-  "description": "Portfolio.AccountTransaction tools on the ayunit MCP. Custody activity loaders (UBS Miami, Morgan Stanley, BTG Offshore/Cayman) parse the export/API feed and insert validated trades + cash/GL movements with live asset/account/lock resolution. Plus batch fixers: duplicate-trade-reconcile (de-dup vs CustodyPosition), compromissada-fix (XP repo normalisation), assetrelated-fix (fills AssetRelated on income, rescues PENDING).",
+  "description": "Portfolio.AccountTransaction tools on the ayunit MCP. UBS Miami activity loader (file → validated trades + cash/GL, live asset/account/lock resolution). Custody-agnostic audit + fix suite: transaction-workday-audit (unregistered assets, structural duplicate clusters, resolvable-now PENDING), pending-revalidate (re-fires the loader validators on PENDING rows whose blockers have cleared), duplicate-trade-reconcile (de-dup vs CustodyPosition), assetrelated-fix (fills AssetRelated on income, rescues PENDING), compromissada-fix (XP repo normalisation), position-quantity-adjustment (fractional dust absorber).",
   "author": {
     "name": "Sten Capital"
   },
   "keywords": [
     "ayunit", "custody", "transactions", "backoffice",
-    "ubs-miami", "morgan-stanley", "btg-offshore", "duplicate-reconcile", "compromissada", "assetrelated", "income", "portfolio"
+    "ubs-miami", "workday-audit", "pending-revalidate", "duplicate-reconcile", "compromissada", "assetrelated", "position-adjustment", "income", "portfolio"
   ]
 }
