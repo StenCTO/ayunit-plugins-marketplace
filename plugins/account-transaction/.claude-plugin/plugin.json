@@ -1,12 +1,12 @@
 {
   "name": "account-transaction",
-  "version": "0.9.1",
-  "description": "Portfolio.AccountTransaction tools on the ayunit MCP. UBS Miami activity loader (file → validated trades + cash/GL, live asset/account/lock resolution). Custody-agnostic audit + fix suite: transaction-workday-audit (unregistered assets, structural duplicate clusters, resolvable-now PENDING), pending-revalidate (re-fires the loader validators on PENDING rows whose blockers have cleared), duplicate-trade-reconcile (de-dup vs CustodyPosition), assetrelated-fix (fills AssetRelated on income, rescues PENDING), compromissada-fix (XP repo normalisation), position-quantity-adjustment (fractional dust absorber).",
+  "version": "0.10.0",
+  "description": "Portfolio.AccountTransaction tools on the ayunit MCP. UBS Miami activity loader (file → validated trades + cash/GL, live asset/account/lock resolution). Custody-agnostic audit + fix suite: transaction-workday-audit (unregistered assets, structural duplicate clusters, resolvable-now PENDING), pending-revalidate (re-fires the loader validators on PENDING rows whose blockers have cleared), pending-position-repair (repairs PENDING rows with no valid identifier by inferring (Asset, direction) from the AccountPosition ↔ CustodyPosition delta; HIGH-confidence-only autonomous writes with [PR-POS] AgentCheck tag), duplicate-trade-reconcile (de-dup vs CustodyPosition), assetrelated-fix (fills AssetRelated on income, rescues PENDING), compromissada-fix (XP repo normalisation), position-quantity-adjustment (fractional dust absorber).",
   "author": {
     "name": "Sten Capital"
   },
   "keywords": [
     "ayunit", "custody", "transactions", "backoffice",
-    "ubs-miami", "workday-audit", "pending-revalidate", "duplicate-reconcile", "compromissada", "assetrelated", "position-adjustment", "income", "portfolio"
+    "ubs-miami", "workday-audit", "pending-revalidate", "pending-position-repair", "duplicate-reconcile", "compromissada", "assetrelated", "position-adjustment", "income", "portfolio"
   ]
 }
