@@ -19,7 +19,7 @@ This is a **meta-skill / orchestrator** with **write autonomy on
 `Portfolio.AccountTransaction`**. It invokes the leaf skills below in sequence
 (each leaf owns its own write guardrails: lock awareness, SELECT-first-merge,
 sign convention, `AgentCheck` audit trail), applies its own high-confidence
-recipes directly (the §3.2 pre-classifier — deactivated-fund residue), drives
+recipes directly (the §3.3 pre-classifier pipeline documented under `references/`), drives
 the Ayunit MCP's PortfolioCreator job tool to recompute positions after each
 fix, and writes a final report. It **never advances `CheckedDate`** — that is
 strictly out of scope and remains the analyst's approval step.
@@ -109,11 +109,17 @@ Before doing anything:
 | [`ayunit://docs/backoffice/daily-control`](ayunit://docs/backoffice/daily-control) | **First — this is what Step 1 uses.** Fleet-wide reconciliation dashboard: request/response shape of `get_daily_control`, the six headline signals (`UnmatchedAssets`, `PctDiffPosition`, `PriceIssueAssets`, `PendingTrades`, `QtyMismatchAssets`, `AP_TotalPosition`) as of each account's `LastCustodyPositionDate`, and how each maps to the E1–E7 catalogue. |
 | [`ayunit://docs/position/reconciliation`](ayunit://docs/position/reconciliation) | The 3-way `(Date, Account, Asset)` comparison + the divergence-cause table (untranslated `AssetR`, missing trade, wrong-sign, pricing divergence, lending/margin, stale price, source-vs-custody, tax) that drives Step 3 routing. |
 | [`ayunit://docs/position/procedures`](ayunit://docs/position/procedures) | `CustodyPosition_Update` CMD dispatch (`SCAcc` is manual-only — this skill uses `execute_select_query` on `v_CustodyPosition` + `v_AccountPosition` instead). |
-| [`ayunit://docs/portfolio-creator/pipeline`](ayunit://docs/portfolio-creator/pipeline) | Why `Status IN (VALIDATED, UPDATED)` reaches `AccountPosition` and `PENDING` doesn't — the shape of the recompute the PortfolioCreator does after each fix. |
+| [`ayunit://docs/portfolio-creator/pipeline`](ayunit://docs/portfolio-creator/pipeline) | Why `Status IN (VALIDATED, UPDATED)` reaches `AccountPosition` and `PENDING` doesn't — the shape of the recompute the PortfolioCreator does after each fix. §6.9 in particular: ASSET RECEIPT/DELIVERY do not generate the Step-2.5 cash side (used by the TROCA DE NOME recipe). |
 | [`ayunit://docs/checkeddate/usage`](ayunit://docs/checkeddate/usage) | The lock this skill respects and never advances. |
 | [`ayunit://docs/transaction/fixes`](ayunit://docs/transaction/fixes) | Recipe library — leaves reference this; the orchestrator does not. |
 | [`ayunit://docs/backoffice/decision-tree`](ayunit://docs/backoffice/decision-tree) | E1–E7 error catalogue that the Daily Control signals point into. |
-| [`references/deactivated-fund-residue.md`](references/deactivated-fund-residue.md) | **Local recipe.** Pattern + detection + fix for `PENDING` rows whose Asset resolves to a `Global.Asset.Activated = FALSE` fund with no account history — the routine's Step 3 pre-classifier applies this before any leaf. Ships the `[PR-IGN-DEACT]` `AgentCheck` tag. |
+| [`ayunit://docs/feeds/routing`](ayunit://docs/feeds/routing) | Access-name convention for the BTG feed tools used by the cash-gap investigation Step D. |
+| [`references/duplicate-first-pass.md`](references/duplicate-first-pass.md) | **Local recipe — MUST run first in Step 3.** Detects PENDING rows that duplicate a canonical VALIDATED/UPDATED sibling on `(Account, Date, Asset via AssetRelated cross-match, ABS Value)` and IGNOREs the PENDING one. Ships the `[DUP-REVERT]` tag. |
+| [`references/cash-gap-investigation.md`](references/cash-gap-investigation.md) | **Local recipe — invoked from Step 2.5.** Day-by-day BRL delta walk to find the shock date, per-row classification against the recipe library, BTG feed cross-check as last resort. |
+| [`references/troca-de-nome.md`](references/troca-de-nome.md) | **Local recipe.** FII name-change swap misclassified by the loader as BUY/SELL. Reclassifies to ASSET RECEIPT/DELIVERY, zeros Value/ValueGross. Ships the `[TROCA-NOME]` tag. |
+| [`references/deposito-tributos-provisionados.md`](references/deposito-tributos-provisionados.md) | **Local recipe.** Tax-provisioning artifact on active funds (structurally similar to come-cotas but empirically causes no custody-side reduction). IGNORE. Ships the `[PR-IGN-TAXPROV]` tag. |
+| [`references/come-cotas.md`](references/come-cotas.md) | **Local recipe** (migrated from project `CLAUDE.md §6`). Come-cotas SELL on active funds — PENDING promoted to UPDATED with fields preserved. Ships the `[CC]` tag. |
+| [`references/deactivated-fund-residue.md`](references/deactivated-fund-residue.md) | **Local recipe.** Pattern + detection + fix for `PENDING` rows whose Asset resolves to a `Global.Asset.Activated = FALSE` fund with no account history. IGNORE. Ships the `[PR-IGN-DEACT]` tag. |
 
 ## Tools this skill calls directly
 
@@ -128,7 +134,7 @@ Before doing anything:
   See [`ayunit://docs/backoffice/daily-control`](ayunit://docs/backoffice/daily-control).
 - `execute_select_query` — the per-account `AccountPosition ↔ CustodyPosition`
   diff (§Step 2), the re-verify (§Step 5), and the DB fallback verification
-  in §3.3.
+  in §3.4.
 - `mcp__ayunit__portfolio_creator_health` — pre-flight service check
   (§Step 1.2). Read-only; returns service `status`/`version` plus
   `jobs_in_store` / `running_jobs` counters.
@@ -276,60 +282,104 @@ Capture as `step2_position_diff` per the schema:
 `{lines: [{asset, dQty, dValue, cause, proposed_route, evidence}, …]}`.
 
 If **no divergence** and **no residual PENDING** for the account, mark
-`status = "clean"` and skip to §3.4 (verify — a no-op but records green).
+`status = "clean"` and skip to §3.5 (verify — a no-op but records green).
 
-#### 3.2 — Step 3: route to leaves
+#### 3.2 — Step 2.5: cash-gap investigation (MANDATORY if any cash asset diverges)
 
-**Pre-classifier — deactivated-fund residue (must run before any leaf).**
-Before invoking `pending-revalidate` or `pending-position-repair`, run the
-seven-signal detection from
-[`references/deactivated-fund-residue.md`](references/deactivated-fund-residue.md)
-against every account-scoped PENDING. If **all seven** flags come back `1`:
+Cash divergences on `BRL` / `USD` / other cash assets are **diagnostic
+signals, not residuals**. Every non-trivial cash gap points at exactly one
+of: missing trade, wrong trade (misclassified), or duplicate cash-side leg.
+Reporting a large cash delta as "informational" is almost always a routing
+error.
 
-- `pending_missing_price = 1` (`SystemCheck LIKE '%missing: %Price%'`)
-- `asset_resolved = 1` (`Asset IS NOT NULL`)
-- `asset_deactivated = 1` (`Global.v_Asset.Activated = 0` for the row's `Asset`)
-- `no_position_history = 1` (`AccountPosition` has 0 rows for the pair)
-- `not_in_custody_on_trade_date = 1` (`CustodyPosition` has no matching row on the row's `Date`)
-- `not_in_custody_currently = 1` (`CustodyPosition` has no matching row on the account's latest snapshot)
-- `only_this_transaction = 1` (exactly 1 row in `AccountTransaction` for the pair)
+**Trigger** — for each cash asset (`Asset IN ('BRL','USD',…)`) in the Step 2
+diff:
 
-apply the recipe from the reference: `Status = 'IGNORED'` via a single
-`execute_procedure(cmd='U')` call, SELECT-first-merge, `[PR-IGN-DEACT]`
-`AgentCheck` tag. **Do not invoke** `pending-revalidate` or
-`pending-position-repair` on the same pk afterwards — the PENDING is closed.
+- `|d_value| > 100`, **or**
+- `custody Value IS NULL and book Value <> 0` (custody may not report cash
+  for this account type — still investigate once), **or**
+- `|d_qty| > 0.5` on `Asset='BRL'` (equivalent since BRL is Price=1).
 
-The two-point custody check (trade date + latest snapshot) is deliberate:
-BTG can transiently reflect a fund closure event in custody for a few days
-before purging it. A single time-window check would false-negative on those
-transient rows (verified against pk 59421). Both endpoints must be empty.
+If any triggers fire, run the four-step drill from
+[`references/cash-gap-investigation.md`](references/cash-gap-investigation.md):
 
-This pre-classifier catches the phantom-trade risk that both leaves would
-mishandle: `pending-revalidate` would blindly promote (landing a negative
-position in an asset the account never held); `pending-position-repair`
-would refuse (LOW confidence) but only after building an empty evidence
-bundle. Neither is wrong per se; the pre-classifier is just more direct.
+1. **Step A — Locate the shock date.** Day-by-day walk of book vs custody
+   cash between `LastCheckedDate` and `LastCustodyPositionDate`. Identify
+   the first date where the delta shifts materially.
+2. **Step B — Enumerate the day's transactions.** All `AccountTransaction`
+   rows on the shock date (`Date` or `SettlementDate`). Sum their `Value`.
+   If the sum ≈ the observed delta jump, one or more of those rows is the
+   culprit.
+3. **Step C — Classify the offending row(s)** against the local recipe
+   library (see the table in `cash-gap-investigation.md`). Apply the
+   matching recipe autonomously; escalate anything unrecognised.
+4. **Step D — BTG feed cross-check** *(last resort)*. If Step A–C don't
+   converge, call `mcp__ayunit__process_btg_onshore_monthly_transactions`
+   (shock date within last 60 days) or
+   `mcp__ayunit__process_btg_onshore_transactions_by_period` (older). Both
+   require an `access_name` credential-profile name from
+   `AgnesCredentialsDB` — do not guess if not already known; ask the caller.
 
-For each **remaining** PENDING and each divergence line whose
+Any fixes applied here **populate `step3_recipes`** (below) — the
+cash-gap-investigation is a routing pass, not a separate write path. Each
+matched row goes through the corresponding recipe (`troca-de-nome`,
+`duplicate-first-pass`, `deposito-tributos-provisionados`, `come-cotas`).
+
+#### 3.3 — Step 3: pre-classifier pipeline + leaf routing
+
+**All account-scoped PENDING rows AND all Step-2 shock-date rows** go
+through the pre-classifier pipeline **first**, in this fixed order. Each
+row is claimed by the first matching recipe and removed from later
+consideration; if no recipe matches, it falls through to the leaf routing
+at the bottom.
+
+Pre-classifier order (fixed — do not reorder):
+
+1. **`duplicate-first-pass`** ([recipe](references/duplicate-first-pass.md))
+   — MUST run first on every candidate PENDING. Detects a PENDING that
+   duplicates a canonical VALIDATED/UPDATED sibling on
+   `(Account, Custody, Date, TransactionType, Asset via AssetRelated
+   cross-match, ABS Value)`. If matched, IGNORE the PENDING (canonical
+   survives). Tag `[DUP-REVERT]`. **This ordering is non-negotiable** —
+   promoting a duplicated PENDING via any leaf lands double-counts in
+   position (learned via failure 2026-07-15 on account 005132370).
+2. **`troca-de-nome`** ([recipe](references/troca-de-nome.md)) — FII
+   name-change swap cluster misclassified by the loader as BUY/SELL at peg
+   prices. Reclassify to ASSET RECEIPT/DELIVERY, zero Value/ValueGross.
+   Tag `[TROCA-NOME]`.
+3. **`deactivated-fund-residue`** ([recipe](references/deactivated-fund-residue.md))
+   — 7-signal detection on PENDING rows where the resolved Asset is
+   `Global.v_Asset.Activated = FALSE` and the account has no history in it.
+   IGNORE. Tag `[PR-IGN-DEACT]`.
+4. **`deposito-tributos-provisionados`** ([recipe](references/deposito-tributos-provisionados.md))
+   — tax-provisioning artifact on an **active** fund (structurally similar
+   to come-cotas but with a distinct description and no custody-side
+   reduction). Requires the empirical no-reduction check to fire. IGNORE.
+   Tag `[PR-IGN-TAXPROV]`.
+5. **`come-cotas`** ([recipe](references/come-cotas.md)) — SELL with
+   `%COME COTAS%` description, `Value=0`, `ValueGross=IR`, identity
+   `ValueGross = |Quantity| × PriceExFee` holds, asset active. Promote to
+   UPDATED with fields preserved. Tag `[CC]`.
+
+Then, for each **remaining** PENDING and each divergence line whose
 `proposed_route` maps to a leaf skill, invoke the leaf **scoped to that
 account + date window**, in this order:
 
-1. **A — `pending-revalidate`** — first, because it's cheap (no inference) and
-   often unblocks divergences on its own (a `PENDING` promoted to `UPDATED`
-   makes the position re-align). Pass the pk list from any `PENDING` matching
-   Bucket 3-A / 3-B / 3-C classification.
-2. **B — `assetrelated-fix`** — for GL income rows still `PENDING` after (A).
-3. **C — `pending-position-repair`** — for `PENDING` rows still stuck **and**
-   accompanied by a matching divergence line (missing/extra quantity of a
-   specific asset in custody). Pass the leaf a structured **evidence bundle**
-   (see the leaf's `SKILL.md`) built from the Step-2 diff: `{pk, dQty, dValue,
-   candidate_asset, direction, custody_row, book_row}`. The leaf ranks and
-   decides confidence.
-4. **D — `duplicate-trade-reconcile`** — only when Step 2 flagged a wrong-sign
-   / restatement pattern.
-5. **E — `position-quantity-adjustment`** — only when the residual delta after
-   (A)–(D) reconciles against **no** upstream trade and the user has
-   pre-confirmed reconciliation plugs (default: skip; report as human-action).
+- **A — `pending-revalidate`** — Bucket 3-A / 3-B / 3-C blockers cleared.
+- **B — `assetrelated-fix`** — GL income rows still PENDING after (A).
+- **C — `pending-position-repair`** — PENDING rows still stuck and
+  accompanied by a matching divergence line. Pass the leaf a structured
+  evidence bundle `{pk, dQty, dValue, candidate_asset, direction,
+  custody_row, book_row}`. HIGH-confidence only.
+- **D — `duplicate-trade-reconcile`** — when Step 2 flagged a wrong-sign /
+  restatement pattern **AND** neither row is PENDING (that case belongs to
+  `duplicate-first-pass` above).
+- **E — `position-quantity-adjustment`** — residual delta after A–D
+  reconciles against no upstream trade AND caller has pre-authorised plugs
+  (default: skip; report as human-action).
+
+Capture each recipe application into `step3_recipes.<recipe-name>` and each
+leaf invocation into `step3_leaves.<leaf-name>` per the schema.
 
 **Confidence enrichment from Step 1 audit signals.** The account's Step-1
 `audit_metrics` are a strong prior for what Step 3 should find:
@@ -353,10 +403,11 @@ Capture each leaf invocation's structured result into
 
 **Every leaf runs with the caller's `dry_run` flag.** Dry-run is contagious.
 
-#### 3.3 — Step 4: recompute PortfolioCreator + verify job outcome
+#### 3.4 — Step 4: recompute PortfolioCreator + verify job outcome
 
-If any leaf in §3.2 wrote (i.e. real run and at least one leaf reported
-promotions / inserts / deletes), trigger the recompute:
+If any pre-classifier recipe or leaf in §3.3 wrote (i.e. real run and at
+least one row was updated / inserted / deleted / IGNORED), trigger the
+recompute:
 
 ```
 mcp__ayunit__calculate_portfolio(
@@ -423,10 +474,10 @@ Capture the merged outcome into `step4_portfolio_creator` per the schema:
   copy the job's `error` field into the account's `errors` list. Skip §3.4,
   continue.
 
-If **no leaf wrote** in §3.2 (dry-run, or all divergences routed to hand-off
-categories), skip §3.3 entirely — recomputing is a no-op.
+If **no recipe or leaf wrote** in §3.3 (dry-run, or all divergences routed
+to hand-off categories), skip §3.4 entirely — recomputing is a no-op.
 
-#### 3.4 — Step 5: re-verify
+#### 3.5 — Step 5: re-verify
 
 Re-run the §3.1 SELECTs verbatim. Recompute divergences. Compare against the
 pre-fix delta:
@@ -514,7 +565,8 @@ If the section is empty, it reads exactly: *"None — all clean. ✅"*
   move to complete its fix, that account is reported as `unresolved` — the
   analyst decides.
 - **Dry-run is contagious.** If the orchestrator runs in `dry_run = true`,
-  every leaf-skill invocation must also be in dry-run, and §3.3 is skipped.
+  every leaf-skill invocation and pre-classifier recipe must also be in
+  dry-run, and §3.4 (recompute) is skipped.
 - **Continue-on-failure per account.** One account's failure never aborts the
   run. Failure is captured on the `AccountRun`, the loop continues.
 - **Echo scope on every reply.** `(accounts, dry_run, force, max_accounts)`
@@ -540,7 +592,7 @@ If the section is empty, it reads exactly: *"None — all clean. ✅"*
   `(Account, Custody)`.** The proc's scalar subquery raises (error 512). Do
   not fix from here. Mark the account `status = "failed"` with reason
   `broken_lock` and include the duplicate-lock rows in the report.
-- **A leaf reports `residual` after (A)–(E) but §3.4 verify shows the
+- **A leaf reports `residual` after (A)–(E) but §3.5 verify shows the
   divergence is resolved.** Leaf-report bug or the divergence resolved via
   chain effects (PENDING promoted → downstream trade re-linked). Trust the
   verify — the divergence table is ground truth.
