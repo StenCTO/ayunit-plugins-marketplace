@@ -15,20 +15,40 @@ divergence back to a missing / wrong / stuck trade in
 re-verifies. This skill runs that whole flow autonomously and writes a report
 the analyst reads instead of doing the work.
 
-This is a **meta-skill / orchestrator**: it never writes to
-`Portfolio.AccountTransaction` and never advances `CheckedDate`. It invokes the
-leaf skills below in sequence, captures each leaf's result as structured JSON
-(shapes in `references/step-schemas.md`), branches on the JSON, drives the
-Ayunit MCP's PortfolioCreator job tool to recompute positions after each fix,
-and writes a final report. Every write guardrail (lock awareness, SELECT-first-
-merge, sign convention, `AgentCheck` audit trail) is the responsibility of the
-leaf skill that does the write.
+This is a **meta-skill / orchestrator** with **write autonomy on
+`Portfolio.AccountTransaction`**. It invokes the leaf skills below in sequence
+(each leaf owns its own write guardrails: lock awareness, SELECT-first-merge,
+sign convention, `AgentCheck` audit trail), applies its own high-confidence
+recipes directly (the §3.2 pre-classifier — deactivated-fund residue), drives
+the Ayunit MCP's PortfolioCreator job tool to recompute positions after each
+fix, and writes a final report. It **never advances `CheckedDate`** — that is
+strictly out of scope and remains the analyst's approval step.
 
-The **safety net** is `CheckedDate`: because this skill never advances it, every
-fix it applies is provisional — the analyst reviews the reconciled position and
-approves it by moving `CheckedDate` forward via the specialist path
-(`checkeddate-update` / `execute_checked_date`). If a leaf writes a wrong fix,
-the row still sits *after* the active lock and can be corrected before approval.
+## Autonomy contract
+
+The orchestrator **acts** rather than **asks** whenever it has a
+high-confidence recipe available. It pauses for human input only when it
+genuinely cannot decide.
+
+| Situation | Behaviour |
+|---|---|
+| High-confidence pre-classifier match (all seven residue signals fire) | **Write autonomously** — `Status = IGNORED`, `[PR-IGN-DEACT]` AgentCheck. |
+| Leaf `pending-revalidate` — blocker provably cleared | **Invoke autonomously** (dry_run=false). Leaf's own gate decides the write. |
+| Leaf `pending-position-repair` — evidence bundle supports a HIGH-confidence candidate | **Invoke autonomously**. Leaf writes only on HIGH; MED/LOW comes back as a report item. |
+| Leaf `assetrelated-fix` — GL income row with resolvable AssetRelated | **Invoke autonomously**. |
+| Leaf `duplicate-trade-reconcile` — clean pair against `CustodyPosition` | **Invoke autonomously**. |
+| Leaf `position-quantity-adjustment` — reconciliation plug (synthetic trade) | **Do not invoke** unless the caller pre-authorised plugs at run start. Report as human-action. This is the one leaf that invents value, so it stays human-only by default. |
+| Leaf returns MED/LOW confidence or refuses | **Report as human-action** — the leaf already made the safe call. |
+| No matching recipe (unclassified `PENDING`, ambiguous divergence, unregistered custody identifier) | **Report as human-action** with the SQL to investigate. |
+| Pricing-only residual (`QtyMismatchAssets = 0`, `PctDiffPosition` material) | **Report as informational** — pricing team hand-off. Not a routine failure. |
+
+The **safety net** is `CheckedDate`: because this skill never advances it,
+every write it applies is provisional — the analyst reviews the reconciled
+position and approves it by moving `CheckedDate` forward via the specialist
+path (`checkeddate-update` / `execute_checked_date`). If a leaf or pre-
+classifier writes a wrong fix, the row still sits *after* the active lock and
+can be corrected before approval. Autonomy without the CheckedDate advance is
+recoverable by design.
 
 ## Leaf skills it invokes (in order per account)
 
@@ -262,20 +282,27 @@ If **no divergence** and **no residual PENDING** for the account, mark
 
 **Pre-classifier — deactivated-fund residue (must run before any leaf).**
 Before invoking `pending-revalidate` or `pending-position-repair`, run the
-six-signal detection from
+seven-signal detection from
 [`references/deactivated-fund-residue.md`](references/deactivated-fund-residue.md)
-against every account-scoped PENDING. If **all six** flags come back `1`:
+against every account-scoped PENDING. If **all seven** flags come back `1`:
 
 - `pending_missing_price = 1` (`SystemCheck LIKE '%missing: %Price%'`)
+- `asset_resolved = 1` (`Asset IS NOT NULL`)
 - `asset_deactivated = 1` (`Global.v_Asset.Activated = 0` for the row's `Asset`)
 - `no_position_history = 1` (`AccountPosition` has 0 rows for the pair)
-- `not_in_custody_window = 1` (`CustodyPosition` has no matching row ±30 days)
+- `not_in_custody_on_trade_date = 1` (`CustodyPosition` has no matching row on the row's `Date`)
+- `not_in_custody_currently = 1` (`CustodyPosition` has no matching row on the account's latest snapshot)
 - `only_this_transaction = 1` (exactly 1 row in `AccountTransaction` for the pair)
 
 apply the recipe from the reference: `Status = 'IGNORED'` via a single
 `execute_procedure(cmd='U')` call, SELECT-first-merge, `[PR-IGN-DEACT]`
 `AgentCheck` tag. **Do not invoke** `pending-revalidate` or
 `pending-position-repair` on the same pk afterwards — the PENDING is closed.
+
+The two-point custody check (trade date + latest snapshot) is deliberate:
+BTG can transiently reflect a fund closure event in custody for a few days
+before purging it. A single time-window check would false-negative on those
+transient rows (verified against pk 59421). Both endpoints must be empty.
 
 This pre-classifier catches the phantom-trade risk that both leaves would
 mishandle: `pending-revalidate` would blindly promote (landing a negative
@@ -471,11 +498,16 @@ If the section is empty, it reads exactly: *"None — all clean. ✅"*
 
 ## Critical rules
 
-- **Never write to `Portfolio.AccountTransaction` directly.** Every mutation
-  goes through a leaf skill. The orchestrator uses `execute_select_query`
-  plus the PortfolioCreator MCP tools (`calculate_portfolio`,
-  `get_portfolio_job`, `portfolio_creator_health`, `list_portfolio_jobs`) —
-  nothing else.
+- **Writes to `Portfolio.AccountTransaction` are allowed** through two paths:
+  (1) leaf-skill invocations (the standard route — each leaf carries its own
+  guardrails); and (2) the orchestrator's own pre-classifier recipes documented
+  under `references/` (currently only `deactivated-fund-residue.md`). Any
+  direct-from-orchestrator write must be a documented recipe with a detection
+  query and a distinct `[…]` `AgentCheck` tag. Ad-hoc writes are not allowed.
+- **Act, don't ask.** When a recipe or leaf gives a high-confidence answer,
+  apply it. Only pause for user input when the classifier is ambiguous or the
+  leaves refuse. Report human-action items in the final report — do not
+  interrupt the run to request approval mid-flight.
 - **Never advance `CheckedDate`.** The lock is the safety net; advancing it is
   the analyst's approval step and is owned by the `checkeddate-update` /
   `execute_checked_date` specialist path. If a leaf reports it needed a lock

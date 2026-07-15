@@ -22,19 +22,29 @@ status-gate rule ([`portfolio-creator/pipeline`](ayunit://docs/portfolio-creator
 | Asset is resolved on the row | `Asset IS NOT NULL` |
 | Asset is deactivated in the master | `Global.v_Asset.Activated = 0` for that `Asset` |
 | Account has no history in the asset | `Portfolio.v_AccountPosition` returns 0 rows for `(Account, Asset)` across all time |
-| Asset is absent from custody around the trade date | `Portfolio.v_CustodyPosition` shows no matching row for `(Account, Asset)` on `Date` or the day before |
+| Asset is absent from custody on the trade date | `Portfolio.v_CustodyPosition` shows no matching row for `(Account, Asset)` on `Date` |
+| Asset is absent from custody at the latest snapshot | `Portfolio.v_CustodyPosition` shows no matching row for `(Account, Asset)` on the account's `MAX([Date])` |
 | No other transactions on the asset for this account | `Portfolio.v_AccountTransaction` returns exactly 1 row for `(ClientAccount, Asset)` — the PENDING itself |
 
 If **any** condition fails, this recipe does not apply — hand back to the
 appropriate leaf. In particular:
 
 - Asset held historically but currently zero → look for a wrong-signed / missing SELL first (`pending-position-repair` or `duplicate-trade-reconcile`).
-- Asset present in custody today → this is not residue; investigate the mapping.
-- Multiple transactions exist → the residue theory doesn't fit; the fund event has a real history and needs analyst review, not a blanket IGNORE.
+- Asset present in custody at the latest snapshot → the account genuinely holds it now; this is not residue.
+- Asset present in custody on the trade date → the fund event is real (not a phantom); investigate as a normal trade.
+- Multiple transactions exist → the residue theory doesn't fit; the fund event has a real history and needs analyst review.
+
+**Why two custody checks and not one time window.** The BTG custody feed can
+briefly reflect a fund closure for a few days between the trade and the final
+purge (verified: pk 59421 showed `STEN MFO D30` in custody 2026-05-12 to
+2026-05-15 while BTG was working the closure event, then it disappeared). A
+±30-day window catches those transient rows and false-negatives the detector.
+The two-point check (trade date + latest snapshot) is robust: transient rows
+between them don't disqualify.
 
 ## Detection query (SELECT-only, orchestrator-safe)
 
-Given a `PENDING` pk, confirm all six conditions:
+Given a `PENDING` pk, confirm all seven conditions:
 
 ```sql
 WITH t AS (
@@ -52,11 +62,22 @@ ap_hist AS (
     FROM Portfolio.v_AccountPosition p JOIN t
       ON p.Account = t.ClientAccount AND p.Custody = t.Custody AND p.Asset = t.Asset
 ),
-cp_touch AS (
-    SELECT COUNT(*) AS cp_rows
+latest_cp AS (
+    SELECT CAST(MAX([Date]) AS date) AS latest_date
+    FROM Portfolio.v_CustodyPosition p JOIN t
+      ON p.Account = t.ClientAccount AND p.Custody = t.Custody
+),
+cp_on_trade AS (
+    SELECT COUNT(*) AS cp_trade_rows
     FROM Portfolio.v_CustodyPosition p JOIN t
       ON p.Account = t.ClientAccount AND p.Custody = t.Custody AND p.Asset = t.Asset
-    WHERE CAST(p.[Date] AS date) BETWEEN DATEADD(day, -30, t.Date) AND DATEADD(day, 30, t.Date)
+    WHERE CAST(p.[Date] AS date) = CAST(t.Date AS date)
+),
+cp_on_latest AS (
+    SELECT COUNT(*) AS cp_latest_rows
+    FROM Portfolio.v_CustodyPosition p JOIN t
+      ON p.Account = t.ClientAccount AND p.Custody = t.Custody AND p.Asset = t.Asset
+    JOIN latest_cp lcp ON CAST(p.[Date] AS date) = lcp.latest_date
 ),
 tx_hist AS (
     SELECT COUNT(*) AS tx_rows
@@ -67,18 +88,21 @@ tx_hist AS (
 SELECT
     t.pk_AccountTransactionID,
     CASE WHEN t.SystemCheck_txt LIKE '%missing: %Price%' THEN 1 ELSE 0 END AS pending_missing_price,
+    CASE WHEN t.Asset IS NOT NULL                        THEN 1 ELSE 0 END AS asset_resolved,
     CASE WHEN asset_check.Activated = 0                  THEN 1 ELSE 0 END AS asset_deactivated,
     CASE WHEN ap_hist.ap_rows = 0                        THEN 1 ELSE 0 END AS no_position_history,
-    CASE WHEN cp_touch.cp_rows = 0                       THEN 1 ELSE 0 END AS not_in_custody_window,
+    CASE WHEN cp_on_trade.cp_trade_rows = 0              THEN 1 ELSE 0 END AS not_in_custody_on_trade_date,
+    CASE WHEN cp_on_latest.cp_latest_rows = 0            THEN 1 ELSE 0 END AS not_in_custody_currently,
     CASE WHEN tx_hist.tx_rows = 1                        THEN 1 ELSE 0 END AS only_this_transaction
 FROM t
 LEFT JOIN asset_check ON 1=1
 LEFT JOIN ap_hist ON 1=1
-LEFT JOIN cp_touch ON 1=1
+LEFT JOIN cp_on_trade ON 1=1
+LEFT JOIN cp_on_latest ON 1=1
 LEFT JOIN tx_hist ON 1=1;
 ```
 
-All six flags = 1 → apply the fix below. Any 0 → do not apply; route elsewhere.
+All seven flags = 1 → apply the fix below. Any 0 → do not apply; route elsewhere.
 
 ## Fix recipe — `Status = 'IGNORED'`
 
@@ -118,7 +142,9 @@ Account `001635274`, BTG onshore. `pk 59421`, dated 2026-05-11:
 - `SystemCheck`: "Asset identified: 'STEN MFO D30' … Revalidation: Status remains PENDING (missing: Price)"
 - `Global.v_Asset.Activated = FALSE` for `STEN MFO D30`
 - `AccountPosition` history for `(001635274, STEN MFO D30)`: **0 rows across all time**
-- `CustodyPosition` around 2026-05-11: **absent**
+- `CustodyPosition` on trade date 2026-05-11: **absent**
+- `CustodyPosition` on latest snapshot 2026-07-09: **absent**
+- `CustodyPosition` **transient** rows 2026-05-12 to 2026-05-15 (qty 718,650.63, matching the PENDING) — closure-processing artifacts; the two-point check correctly ignores these
 - `AccountTransaction` count for the asset: **1** (this row)
 
 Fix applied: `Status = 'IGNORED'` with the `[PR-IGN-DEACT]` AgentCheck tag.
