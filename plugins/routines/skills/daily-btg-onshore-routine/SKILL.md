@@ -86,17 +86,28 @@ Before doing anything:
 
 | Resource | Read when… |
 |---|---|
-| [`ayunit://docs/position/reconciliation`](ayunit://docs/position/reconciliation) | **First.** The 3-way `(Date, Account, Asset)` comparison + the divergence-cause table (untranslated `AssetR`, missing trade, wrong-sign, pricing divergence, lending/margin, stale price, source-vs-custody, tax) that drives Step 3 routing. |
+| [`ayunit://docs/backoffice/daily-control`](ayunit://docs/backoffice/daily-control) | **First — this is what Step 1 uses.** Fleet-wide reconciliation dashboard: request/response shape of `get_daily_control`, the six headline signals (`UnmatchedAssets`, `PctDiffPosition`, `PriceIssueAssets`, `PendingTrades`, `QtyMismatchAssets`, `AP_TotalPosition`) as of each account's `LastCustodyPositionDate`, and how each maps to the E1–E7 catalogue. |
+| [`ayunit://docs/position/reconciliation`](ayunit://docs/position/reconciliation) | The 3-way `(Date, Account, Asset)` comparison + the divergence-cause table (untranslated `AssetR`, missing trade, wrong-sign, pricing divergence, lending/margin, stale price, source-vs-custody, tax) that drives Step 3 routing. |
 | [`ayunit://docs/position/procedures`](ayunit://docs/position/procedures) | `CustodyPosition_Update` CMD dispatch (`SCAcc` is manual-only — this skill uses `execute_select_query` on `v_CustodyPosition` + `v_AccountPosition` instead). |
 | [`ayunit://docs/portfolio-creator/pipeline`](ayunit://docs/portfolio-creator/pipeline) | Why `Status IN (VALIDATED, UPDATED)` reaches `AccountPosition` and `PENDING` doesn't — the shape of the recompute the PortfolioCreator does after each fix. |
 | [`ayunit://docs/checkeddate/usage`](ayunit://docs/checkeddate/usage) | The lock this skill respects and never advances. |
 | [`ayunit://docs/transaction/fixes`](ayunit://docs/transaction/fixes) | Recipe library — leaves reference this; the orchestrator does not. |
+| [`ayunit://docs/backoffice/decision-tree`](ayunit://docs/backoffice/decision-tree) | E1–E7 error catalogue that the Daily Control signals point into. |
 
 ## Tools this skill calls directly
 
-- `execute_select_query` — the audit query (§Step 1), the per-account
-  `AccountPosition ↔ CustodyPosition` diff (§Step 2), the re-verify (§Step 5),
-  the DB fallback verification in §3.3.
+- `mcp__ayunit__get_daily_control` — **the Step 1 audit tool**. Fleet-wide
+  reconciliation dashboard, read-only. One row per `(Account, Custody)` with
+  every headline signal measured on each account's `LastCustodyPositionDate`.
+  Filters are optional and AND-combined: `clients`, `accounts`, `custody`,
+  `offshore`, `max_rows`. Returns `UnmatchedAssets`, `PctDiffPosition`,
+  `PriceIssueAssets`, `PendingTrades`, `QtyMismatchAssets`, `AP_TotalPosition`.
+  This replaces the ~90-line CTE audit query that lived here in v0.2.0 —
+  same numbers, better shape, plus the new `QtyMismatchAssets` signal.
+  See [`ayunit://docs/backoffice/daily-control`](ayunit://docs/backoffice/daily-control).
+- `execute_select_query` — the per-account `AccountPosition ↔ CustodyPosition`
+  diff (§Step 2), the re-verify (§Step 5), and the DB fallback verification
+  in §3.3.
 - `mcp__ayunit__portfolio_creator_health` — pre-flight service check
   (§Step 1.2). Read-only; returns service `status`/`version` plus
   `jobs_in_store` / `running_jobs` counters.
@@ -142,97 +153,52 @@ Before doing anything:
 
 ### 2 — Step 1: enumerate late BTG onshore accounts
 
-Run the audit query verbatim (do not paraphrase it — the analyst uses the same
-one). It returns one row per BTG onshore account with reconciliation metrics
-measured on `LastCustodyPositionDate`:
+Call the fleet-wide audit tool scoped to BTG onshore:
 
-```sql
-/* Onshore BTG, onboarded + active checked date, with reconciliation metrics.
-   All position metrics are measured ON LastCustodyPositionDate.
-   PctDiffPosition = (AP_total - CP_total) / CP_total * 100
-     i.e. the book's deviation from custody (custody = external source of truth). */
-WITH accts AS (
-    SELECT DISTINCT ClientAccount AS Account, Custody, Offshore
-    FROM Global.v_ClientAccount
-    WHERE Custody = 'BTG' AND Offshore = 0
-),
-cd AS (
-    SELECT Account, Custody, MAX([Date]) AS LastCheckedDate
-    FROM Portfolio.v_CheckedDate WHERE Activated = 1
-    GROUP BY Account, Custody
-),
-cp AS (
-    SELECT Account, Custody, CAST(MAX([Date]) AS date) AS LastCustodyPositionDate
-    FROM Portfolio.v_CustodyPosition
-    GROUP BY Account, Custody
-),
-cp_unmatched AS (
-    SELECT p.Account, p.Custody, COUNT(*) AS UnmatchedAssets
-    FROM Portfolio.v_CustodyPosition p
-    INNER JOIN cp ON cp.Account = p.Account AND cp.Custody = p.Custody
-                 AND CAST(p.[Date] AS date) = cp.LastCustodyPositionDate
-    WHERE p.Asset IS NULL
-    GROUP BY p.Account, p.Custody
-),
-ap AS (
-    SELECT Account, Custody, CAST(MAX([Date]) AS date) AS LastAccountPositionDate
-    FROM Portfolio.v_AccountPosition
-    GROUP BY Account, Custody
-),
-ap_on AS (
-    SELECT p.Account, p.Custody,
-           SUM(p.ValueClose) AS AP_Total,
-           SUM(CASE WHEN p.PriceSourceOpen  = 'Missing'
-                     OR p.PriceSourceClose = 'Missing'
-                     OR (p.QuantityClose <> 0 AND p.PriceClose = 0)
-                    THEN 1 ELSE 0 END) AS PriceIssueAssets
-    FROM Portfolio.v_AccountPosition p
-    INNER JOIN cp ON cp.Account = p.Account AND cp.Custody = p.Custody
-                 AND CAST(p.[Date] AS date) = cp.LastCustodyPositionDate
-    GROUP BY p.Account, p.Custody
-),
-cp_on AS (
-    SELECT p.Account, p.Custody, SUM(p.Value) AS CP_Total
-    FROM Portfolio.v_CustodyPosition p
-    INNER JOIN cp ON cp.Account = p.Account AND cp.Custody = p.Custody
-                 AND CAST(p.[Date] AS date) = cp.LastCustodyPositionDate
-    GROUP BY p.Account, p.Custody
-),
-pend AS (
-    SELECT t.ClientAccount AS Account, t.Custody, COUNT(*) AS PendingTrades
-    FROM Portfolio.v_AccountTransaction t
-    INNER JOIN cd ON cd.Account = t.ClientAccount AND cd.Custody = t.Custody
-    INNER JOIN cp ON cp.Account = t.ClientAccount AND cp.Custody = t.Custody
-    WHERE t.Status = 'PENDING'
-      AND t.SettlementDate >  cd.LastCheckedDate
-      AND t.SettlementDate <= cp.LastCustodyPositionDate
-    GROUP BY t.ClientAccount, t.Custody
+```
+mcp__ayunit__get_daily_control(
+    custody  = ["BTG"],
+    offshore = false,
+    accounts = <caller's accounts filter, or omit for all>,
+    max_rows = 5000
 )
-SELECT
-    a.Account, a.Custody, a.Offshore,
-    cd.LastCheckedDate,
-    cp.LastCustodyPositionDate,
-    ap.LastAccountPositionDate,
-    ISNULL(u.UnmatchedAssets, 0) AS UnmatchedAssets,
-    CAST( (ao.AP_Total - co.CP_Total) / NULLIF(co.CP_Total, 0) * 100 AS decimal(18,4) ) AS PctDiffPosition,
-    ISNULL(ao.PriceIssueAssets, 0) AS PriceIssueAssets,
-    ISNULL(pd.PendingTrades, 0)    AS PendingTrades,
-    CAST(ao.AP_Total AS decimal(18,2)) AS AP_TotalPosition
-FROM accts a
-INNER JOIN ap    ON ap.Account = a.Account AND ap.Custody = a.Custody
-INNER JOIN cd    ON cd.Account = a.Account AND cd.Custody = a.Custody
-LEFT  JOIN cp    ON cp.Account = a.Account AND cp.Custody = a.Custody
-LEFT  JOIN cp_unmatched u ON u.Account = a.Account AND u.Custody = a.Custody
-LEFT  JOIN ap_on ao ON ao.Account = a.Account AND ao.Custody = a.Custody
-LEFT  JOIN cp_on co ON co.Account = a.Account AND co.Custody = a.Custody
-LEFT  JOIN pend  pd ON pd.Account = a.Account AND pd.Custody = a.Custody
-ORDER BY PendingTrades DESC, UnmatchedAssets DESC, a.Account;
 ```
 
-Filter to `LastCustodyPositionDate > LastCheckedDate` (an account is "late"
-only when custody has newer data than our lock). Apply the caller's `accounts`
-filter and `max_accounts` cap. Capture the filtered list into
-`run_meta.accounts` and log the count.
+The response's `data[]` has one row per `(Account, Custody)` with every
+headline reconciliation signal measured **as of that account's
+`LastCustodyPositionDate`**. Columns (see the Daily Control doc for the
+authoritative definition):
+
+| Column | Meaning | Healthy |
+|---|---|---|
+| `LastCheckedDate` | last locked (frozen) date for the pair | — |
+| `LastCustodyPositionDate` | last custody snapshot date — **metrics are AS OF this date** | — |
+| `LastAccountPositionDate` | last book (`AccountPosition`) date | — |
+| `UnmatchedAssets` | custody rows with no resolved Asset (→ E1) | `0` |
+| `PctDiffPosition` | % diff book vs custody total value | `~0` |
+| `PriceIssueAssets` | assets missing price source / zero-priced on held qty (→ E7) | `0` |
+| `PendingTrades` | `PENDING` transactions settling after `LastCheckedDate` | `0` |
+| `QtyMismatchAssets` | assets whose book vs custody qty differ by `> 0.5` (→ E1–E5) | `0` |
+| `AP_TotalPosition` | total book position value | — |
+
+Client-side filtering:
+
+1. **Late-account filter** — keep only rows where
+   `LastCustodyPositionDate > LastCheckedDate`. An account is "late" only when
+   custody has newer data than our lock; equal dates mean the analyst just
+   advanced the lock (benign, not our target).
+2. **Order** — sort `PendingTrades DESC, QtyMismatchAssets DESC,
+   UnmatchedAssets DESC, Account ASC` so the most actionable accounts come
+   first.
+3. **Cap** — apply the caller's `max_accounts` cap (after ordering).
+4. **Response envelope** — if `response.truncated == true`, add a warning to
+   `run_meta.errors` (fleet-wide hit the cap; caller should raise `max_rows`
+   or narrow `accounts`). Do **not** silently accept a truncated audit.
+
+Capture the filtered list into `run_meta.accounts` and log the count.
+`audit_summary.late_accounts_returned` = rows from the tool;
+`audit_summary.late_accounts_after_filter` = rows after the late-account +
+`max_accounts` filters.
 
 **Empty list** → jump to §7 (write a "nothing to do" report and finalise).
 
@@ -312,6 +278,23 @@ invoke the leaf **scoped to that account + date window**, in this order:
 5. **E — `position-quantity-adjustment`** — only when the residual delta after
    (A)–(D) reconciles against **no** upstream trade and the user has
    pre-confirmed reconciliation plugs (default: skip; report as human-action).
+
+**Confidence enrichment from Step 1 audit signals.** The account's Step-1
+`audit_metrics` are a strong prior for what Step 3 should find:
+
+- `QtyMismatchAssets > 0` → an actual asset-quantity mismatch exists (not just
+  pricing noise). This raises confidence in routes **C** (`pending-position-
+  repair`) and **D** (`duplicate-trade-reconcile`). Cross-check: the count of
+  Step-2 divergence lines with `|dQty| > 0.5` should approximate
+  `QtyMismatchAssets`; if it doesn't, log a warning (Step 1 and Step 2 disagree
+  on the same account/date — usually a stale custody snapshot).
+- `QtyMismatchAssets = 0` **and** `PctDiffPosition` material → the entire
+  delta is pricing-side. Route to **report-only**; do not invoke C/D/E even
+  if a residual PENDING exists (the PENDING is unrelated to the position gap).
+- `UnmatchedAssets > 0` → hand off to `asset-register` before invoking any
+  leaf that depends on `Asset` resolution (routes A/C).
+- `PriceIssueAssets > 0` → do **not** attempt leaf writes on those assets;
+  pricing-team hand-off first.
 
 Capture each leaf invocation's structured result into
 `step3_leaves.<leaf-name>` per the schema.

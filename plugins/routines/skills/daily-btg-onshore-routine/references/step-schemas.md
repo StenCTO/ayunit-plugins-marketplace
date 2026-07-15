@@ -67,6 +67,7 @@ so changes here require a plugin version bump.
     "pct_diff_position": 0.0,
     "price_issue_assets": 0,
     "pending_trades": 0,
+    "qty_mismatch_assets": 0,
     "ap_total_position": 0.0
   },
   "started_at": "YYYY-MM-DDTHH:MM:SS-03:00",
@@ -279,6 +280,9 @@ Human-action one (which always renders).
 | Days behind | {{last_custody_position_date - last_checked_date}} |
 | Audit PctDiffPosition | {{audit_metrics.pct_diff_position}}% |
 | Audit PendingTrades | {{audit_metrics.pending_trades}} |
+| Audit QtyMismatchAssets | {{audit_metrics.qty_mismatch_assets}} |
+| Audit UnmatchedAssets | {{audit_metrics.unmatched_assets}} |
+| Audit PriceIssueAssets | {{audit_metrics.price_issue_assets}} |
 | Divergence lines (pre) | {{step2.lines | length}} |
 | Divergence lines (post) | {{step5.residual | length}} |
 | Resolved | {{step5.resolved | length}} |
