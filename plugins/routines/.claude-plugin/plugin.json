@@ -1,6 +1,6 @@
 {
   "name": "routines",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Orchestrator skills (meta-skills) for daily/weekly backoffice routines. Each routine chains leaf skills from account-transaction and position in sequence, captures structured output between steps, branches on results, drives the PortfolioCreator MCP (calculate_portfolio / get_portfolio_job) between fixes when a recompute is needed, and emits a per-run report. Fires via Claude Cowork Desktop scheduled tasks (local, full MCP access); also runs manually. Orchestrators never touch the DB directly and never advance CheckedDate — all writes go through leaf skills, and CheckedDate advancement is the analyst's approval step via the specialist path.",
   "author": {
     "name": "Sten Capital"
