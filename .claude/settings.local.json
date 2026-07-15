@@ -15,7 +15,11 @@
       "mcp__ayunit__get_procedure_detail",
       "mcp__ayunit__get_view_detail",
       "mcp__ayunit__search_docs",
-      "mcp__ayunit__identify_asset"
+      "mcp__ayunit__identify_asset",
+      "mcp__ayunit__portfolio_creator_health",
+      "mcp__ayunit__calculate_portfolio",
+      "mcp__ayunit__get_portfolio_job",
+      "mcp__ayunit__get_daily_control"
     ]
   }
 }

@@ -55,11 +55,12 @@ recoverable by design.
 | # | Skill | Purpose |
 |---|---|---|
 | A | `account-transaction:pending-revalidate` | Re-fire the loader validators on `PENDING` rows whose 3-A / 3-B / 3-C blocker (missing Asset mapping, missing Price, derivable Quantity) has now cleared. |
-| B | `account-transaction:assetrelated-fix` | Fill `AssetRelated` on GL income rows (`INTEREST / DIVIDEND`) so they promote out of `PENDING`. |
-| C | `account-transaction:pending-position-repair` | **New leaf.** Repair a `PENDING` row that has no valid custody identifier by inferring `(Asset, direction)` from the `AccountPosition ↔ CustodyPosition` delta on the same account/date. Custody-agnostic. |
+| B | `account-transaction:assetrelated-fix` | Fill `AssetRelated` on GL income rows (`INTEREST / DIVIDEND`) so they promote out of `PENDING`. Layouts A/B (XP), C (JP ISIN/CUSIP), **D (BTG `RENDIMENTO - <FUND> - <BOOK>`, added 2026-07-15)**. |
+| C | `account-transaction:pending-position-repair` | Repair a `PENDING` row that has no valid custody identifier by inferring `(Asset, direction)` from the `AccountPosition ↔ CustodyPosition` delta on the same account/date. Custody-agnostic. |
 | D | `account-transaction:duplicate-trade-reconcile` | Detect and (lock-aware) remove restated / double-loaded trades against `Portfolio.v_CustodyPosition`. |
 | E | `account-transaction:position-quantity-adjustment` | For unexplained quantity deltas that reconcile against no upstream trade, write a reconciliation plug (BUY/SELL for non-cash, GL RECEIPT/DELIVERY for cash — never DEPOSIT/WITHDRAW, never ASSET RECEIPT/DELIVERY). Human-confirmed. |
-| F | `asset:asset-register` | (Referenced, not auto-invoked.) When Step 3 surfaces an unregistered custody identifier, hand off to this skill; the routine will pick the affected `PENDING` pks up on the next re-run. |
+| F | `asset:asset-lookup` | **Read-only pre-check** (added 2026-07-15). Before any `asset-register` hand-off, resolve the unknown custody identifier through `identify_asset` (Global.Asset direct match on ISIN/CUSIP/CNPJ/ANBIMA/…), then `Portfolio.v_AssetCustody` (per-custody `TickerCustody`/`TickerCustody2` mapping). Verified real BTG cases (NTN-B `assetCode 307807`, CDB `CDB4267Z8IU`, EXES `Cnpj 44173493000137`) resolve HERE without needing new registration — the routine skips `asset-register` and instead flags the loader-mapping gap. |
+| G | `asset:asset-register` | (Referenced, not auto-invoked.) When Step 3 surfaces an unregistered custody identifier **AND `asset-lookup` returned `NOT_FOUND`**, hand off to this skill; the routine will pick the affected `PENDING` pks up on the next re-run. Never call `asset-register` without `asset-lookup` first — verified 2026-07-15 that 3 of 4 candidate "unregistered" assets on this run were in fact already registered. |
 
 Each leaf's own `SKILL.md` is **the** authority for its inputs, outputs, and
 guardrails. This orchestrator must not duplicate that logic — it decides scope,
