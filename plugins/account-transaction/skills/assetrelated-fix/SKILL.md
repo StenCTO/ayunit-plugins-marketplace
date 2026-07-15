@@ -190,14 +190,15 @@ python3 scripts/resolve_assetrelated.py candidates.json holdings.json identifier
 > Either way, pull the index **fresh** per run — it's reference data, cheap to
 > query, and stale index entries silently mis-attribute income.
 
-The engine recognises three income layouts:
+The engine recognises four income layouts:
 
-| Layout | Description grammar / signal | How the asset is found | HIGH when… |
-|---|---|---|---|
-| **A** | `RENDIMENTOS DE CLIENTES <TICKER> S/ <n>` | the **ticker** is literal in the text (`CPTI11`, `CDII11`) | the ticker **equals** exactly one **held** asset's `Asset` code/ticker |
-| **B** | `Devolução Tx de Distr <FUND NAME>` | **fuzzy** match the fund name to a **held** asset's `Description` (accent/spacing/structure-word insensitive) | exactly one held asset scores ≥ 0.86 with a clear margin over the runner-up |
-| **C** | an **ISIN** (`[A-Z]{2}[A-Z0-9]{9}[0-9]`) embedded in the description, **or** a **CUSIP** carried out-of-band via the candidate's `cusip` field (JP `RawTransaction.Cusip`) | exact match against the **global** identifier index — `Global.Asset.Isin` / `Cusip` **or** the custody-side `Portfolio.AssetCustody.TickerCustody` / `TickerCustody2` (JP sometimes books a different CUSIP variant than Global.Asset) | one and only one asset in the identifier index matches; **holding universe not required** (ISIN/CUSIP is identity, not a hint) |
-| **SWEEP** | `DEPOSIT SWEEP INTEREST FOR <period> @ <rate> RATE ON AVG COLLECTED BALANCE OF $<amt>` (JP monthly cash-sweep interest) | recognition-only — there is no paying security; interest is earned on the USD balance itself | **never HIGH.** These rows are *loader mis-classified*: correct `GeneralLedgerType` is `'OVERNIGHT'` and `AssetRelated` stays NULL by design. Report and hand off to the loader / GL-type fix — reclassifying `GeneralLedgerType` is **out of this skill's write scope** (this skill only writes `AssetRelated` + `Status`) |
+| Layout | Custody | Description grammar / signal | How the asset is found | HIGH when… |
+|---|---|---|---|---|
+| **A** | XP onshore | `RENDIMENTOS DE CLIENTES <TICKER> S/ <n>` | the **ticker** is literal in the text (`CPTI11`, `CDII11`) | the ticker **equals** exactly one **held** asset's `Asset` code/ticker |
+| **B** | XP onshore | `Devolução Tx de Distr <FUND NAME>` | **fuzzy** match the fund name to a **held** asset's `Description` (accent/spacing/structure-word insensitive) | exactly one held asset scores ≥ 0.86 with a clear margin over the runner-up |
+| **C** | JP (international) | an **ISIN** (`[A-Z]{2}[A-Z0-9]{9}[0-9]`) embedded in the description, **or** a **CUSIP** carried out-of-band via the candidate's `cusip` field (JP `RawTransaction.Cusip`) | exact match against the **global** identifier index — `Global.Asset.Isin` / `Cusip` **or** the custody-side `Portfolio.AssetCustody.TickerCustody` / `TickerCustody2` (JP sometimes books a different CUSIP variant than Global.Asset) | one and only one asset in the identifier index matches; **holding universe not required** (ISIN/CUSIP is identity, not a hint) |
+| **D** | BTG onshore | `RENDIMENTO - <FUND NAME> - <CETIP\|SELIC\|BM&F\|B3\|BOVESPA>` (e.g. `RENDIMENTO - VBI CRED MULTI FII - CETIP`, `RENDIMENTO - BTG INFRA DEBT FIP - CETIP`) | **fuzzy** match the fund name (between the two dashes) to a **held** asset's `Description` — same signature/normalisation pipeline as Layout B | exactly one held asset scores ≥ 0.86 with a clear margin over the runner-up. Same coherence gate as B (account must already hold the fund) — BTG doesn't embed a ticker or ISIN in this feed |
+| **SWEEP** | JP (international) | `DEPOSIT SWEEP INTEREST FOR <period> @ <rate> RATE ON AVG COLLECTED BALANCE OF $<amt>` (JP monthly cash-sweep interest) | recognition-only — there is no paying security; interest is earned on the USD balance itself | **never HIGH.** These rows are *loader mis-classified*: correct `GeneralLedgerType` is `'OVERNIGHT'` and `AssetRelated` stays NULL by design. Report and hand off to the loader / GL-type fix — reclassifying `GeneralLedgerType` is **out of this skill's write scope** (this skill only writes `AssetRelated` + `Status`) |
 
 Everything else — unknown grammar, a security the account doesn't hold (A/B), an
 identifier not registered in `Global.Asset` (C), or an ambiguous / conflicting match —
@@ -218,12 +219,23 @@ refuses to guess when the evidence isn't clean.
 > `{"name": "...", "asset": "C00..."}` entry, and re-run. Mining the REPORT bucket
 > for new alias candidates is the natural way to grow this file.
 
-> **Extending to new layouts/custodies.** The default grammars are XP's. BTG / MS income
-> receipts use different description text — until their grammar is added to the resolver,
-> those rows fall to `REPORT`. To add one: confirm the new grammar from real
+> **Extending to new layouts/custodies.** Layouts **A** and **B** cover XP onshore;
+> **C** covers JP international (ISIN/CUSIP-based); **D** covers BTG onshore's
+> `RENDIMENTO - <FUND> - <BOOK>` fund-income notice (added 2026-07-15 after the
+> BTG onshore routine surfaced ~10 unmatched INTEREST/DIVIDEND rows on this
+> family across accounts 003648843/004434131/005051227). MS onshore and any
+> other custody's income text will still fall to `REPORT` until its grammar is
+> added. To add a new one: confirm the new grammar from real
 > `RawTransaction`/`Descr` samples, add a parser + its `HIGH` rule to
-> `resolve_assetrelated.py`, and re-test against already-fixed (`UPDATED`) rows of that
-> family before trusting it.
+> `resolve_assetrelated.py`, and re-test against already-fixed (`UPDATED`) rows
+> of that family before trusting it.
+>
+> **Not covered by Layout D:** BTG bond-coupon notices whose description is only
+> `JUROS` (with `AssetCustody = 'NTNB'` or similar). The text alone doesn't
+> identify the paying bond — the resolver would need to match on
+> `AssetCustody + CustodyIdentifier + held bond`, which is a different strategy
+> (holding-driven, not text-driven). Left as future Layout E when a design
+> emerges.
 
 ### 4 — Lock-gate (CheckedDate)
 

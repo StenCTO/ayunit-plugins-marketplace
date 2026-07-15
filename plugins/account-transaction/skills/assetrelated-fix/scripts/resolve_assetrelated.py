@@ -52,7 +52,7 @@ identifiers.json : a GLOBAL (not per-account) identifier index, one object per a
   Pull it fresh each run (it's reference data, cheap to query) — don't cache it stale.
 
 plan.json (stdout) : the candidates, each enriched with:
-    layout        'A' | 'B' | 'C' | 'SWEEP' | 'UNKNOWN'
+    layout        'A' | 'B' | 'C' | 'D' | 'SWEEP' | 'UNKNOWN'
     extracted     the raw token/name pulled from the description (or null)
     matchedAsset  the Asset code to write into AssetRelated (or null)
     matchedName   the matched holding's Description (or null)
@@ -79,9 +79,15 @@ HIGH (the skill may auto-fix, subject to the CheckedDate lock):
     was observed on real JP bond coupons whose AssetCustody/Isin resolved
     cleanly but had zero rows in AccountPosition / AccountTransaction /
     CustodyPosition for that account.
+  * Layout D: BTG onshore's fund-income notice —
+    "RENDIMENTO - <FUND NAME> - <CETIP|SELIC|BM&F|B3>". The fund name from
+    between the two dashes fuzzy-matches exactly one holding with
+    score >= HIGH_THRESHOLD and a clear margin over the runner-up. Same
+    coherence gate as B: the account must already hold the fund (BTG doesn't
+    embed a ticker/ISIN in this feed, only a free-text name).
 REPORT (never auto-written — listed for a human):
   * no parseable layout, OR
-  * (A/B only) the parsed security is not in the holding universe (coherence
+  * (A/B/D only) the parsed security is not in the holding universe (coherence
     fails), OR
   * (C) the ISIN/CUSIP does not match any asset in identifiers.json (the
     security is genuinely unregistered — needs asset-register first), OR
@@ -206,6 +212,22 @@ RE_B = re.compile(r"DISTR\w*\s+(.+)$", re.IGNORECASE)
 #    text AND no cusip field" is.
 RE_C_ISIN = re.compile(r"\b([A-Z]{2}[A-Z0-9]{9}[0-9])\b")
 
+# D: BTG's fund/CETIP income notice — "RENDIMENTO - <FUND NAME> - <BOOK>"
+#    where <BOOK> is one of CETIP / SELIC / BOVESPA / B3 / BM&F / BMF. The
+#    fund name lives between the two dashes, in upper case, sometimes
+#    including "FII"/"FIP"/"FIDC" suffixes and marketing abbreviations
+#    (e.g. "VBI CRED MULTI FII", "BTG INFRA DEBT FIP"). Same fuzzy-match
+#    strategy as Layout B (against the holding universe): BTG doesn't
+#    embed tickers or ISINs in this feed. Verified real-world examples
+#    (BTG onshore, 2026-04..07):
+#      "RENDIMENTO - RBR OPORTUNIDADE FII - CETIP"
+#      "RENDIMENTO - BTG INFRA DEBT FIP - CETIP"
+#      "RENDIMENTO - VBI CRED MULTI FII - CETIP"
+RE_D = re.compile(
+    r"RENDIMENTO\s*-\s*(.+?)\s*-\s*(CETIP|SELIC|BOVESPA|BM&F|BMF|B3)\b",
+    re.IGNORECASE,
+)
+
 # SWEEP: JP's monthly cash-sweep interest — "DEPOSIT SWEEP INTEREST FOR
 # <period> @ <rate> RATE ON AVG COLLECTED BALANCE OF $<amt> AS OF <date>".
 # This is interest earned on the USD cash balance itself, NOT a coupon on a
@@ -229,10 +251,12 @@ def parse_layout(description: str, has_cusip: bool = False):
     field directly via match_identifier). For 'SWEEP', extracted_text is
     None — recognition alone is the whole point of the layout.
 
-    Precedence: A > B > SWEEP > C. SWEEP is checked before C because a
+    Precedence: A > B > D > SWEEP > C. SWEEP is checked before C because a
     sweep-interest description never carries an ISIN or a bond CUSIP — its
     'cusip' field, if any, is spurious — and we don't want a rare stray
     12-char token in the sweep template to accidentally route it to C.
+    D (BTG) sits between B and SWEEP because BTG's "RENDIMENTO - X - CETIP"
+    grammar cannot collide with any other layout (it has a distinct anchor).
     """
     d = description or ""
     m = RE_A.search(d)
@@ -240,6 +264,9 @@ def parse_layout(description: str, has_cusip: bool = False):
         return "A", m.group(1).strip()
     if re.search(r"DEVOLU\w*", deaccent(d)) and RE_B.search(d):
         return "B", RE_B.search(d).group(1).strip()
+    m = RE_D.search(d)
+    if m:
+        return "D", m.group(1).strip()
     if RE_SWEEP.search(d):
         return "SWEEP", None
     m = RE_C_ISIN.search(deaccent(d))
@@ -273,19 +300,38 @@ def match_ticker(ticker: str, holdings):
     return None, 0.0
 
 
+def _distinctive_tokens(s: str):
+    """Tokens of s after dropping structure stopwords (uppercase, de-accented)."""
+    return [t for t in tokens(s) if t not in STOPWORDS]
+
+
 def match_name(name: str, holdings):
     """
-    Layout B: fuzzy fund-name -> holding via signature similarity.
+    Layout B / D: fuzzy fund-name -> holding via signature similarity, with a
+    token-containment boost for abbreviated custody names (BTG delivers
+    "BTG INFRA DEBT FIP" for a fund registered as "BTG PACTUAL INFRA DEBT FIP",
+    or "VBI CRED MULTI FII" for "VBI CRED MULTI FII RESP LIMITADA"). If every
+    distinctive token of the candidate is present in the holding's distinctive
+    tokens AND there are >=2 such tokens, the base SequenceMatcher score is
+    raised to just above HIGH_THRESHOLD so the row can qualify as HIGH. The
+    margin gate is unchanged — two holdings both containing the candidate's
+    tokens will both get boosted, no winner emerges, and the row correctly
+    falls to REPORT (protection against too-generic 2-token matches).
     Returns (best_holding, best_score, unique_clear_winner: bool).
     """
-    cand = signature(name)
-    if not cand or not holdings:
+    cand_tokens = _distinctive_tokens(name)
+    if not cand_tokens or not holdings:
         return None, 0.0, False
+    cand_sig = "".join(cand_tokens)
+    cand_set = set(cand_tokens)
     scored = []
     for h in holdings:
-        hs = signature(h.get("description", "")) or "".join(tokens(h.get("asset", "")))
-        score = SequenceMatcher(None, cand, hs).ratio() if hs else 0.0
-        scored.append((score, h))
+        h_tokens = _distinctive_tokens(h.get("description", ""))
+        hs = "".join(h_tokens) or "".join(tokens(h.get("asset", "")))
+        base = SequenceMatcher(None, cand_sig, hs).ratio() if hs else 0.0
+        if len(cand_tokens) >= 2 and cand_set.issubset(set(h_tokens)):
+            base = max(base, HIGH_THRESHOLD + 0.01)
+        scored.append((base, h))
     scored.sort(key=lambda x: x[0], reverse=True)
     best_score, best = scored[0]
     runner = scored[1][0] if len(scored) > 1 else 0.0
@@ -400,6 +446,24 @@ def resolve(candidates, holdings, identifiers=None):
                 bn = best.get("description") if best else None
                 row["score"] = round(score, 4) if best else None
                 row["reason"] = (f"fund '{extracted}' best holding '{bn}' score={score:.2f} "
+                                 f"below threshold/ambiguous - manual")
+            out.append(row)
+            continue
+
+        if layout == "D":
+            # BTG grammar shares Layout B's holding-universe coherence gate:
+            # the fund name comes from custody free-text, so a match is only
+            # trusted when the account genuinely holds the fund.
+            best, score, unique = match_name(extracted, holdings)
+            if best and unique:
+                row.update(matchedAsset=best["asset"], matchedName=best.get("description"),
+                           score=round(score, 4), conviction="HIGH",
+                           reason=f"BTG fund '{extracted}' ~ held {best['asset']} "
+                                  f"({best.get('description')}) score={score:.2f}, unique")
+            else:
+                bn = best.get("description") if best else None
+                row["score"] = round(score, 4) if best else None
+                row["reason"] = (f"BTG fund '{extracted}' best holding '{bn}' score={score:.2f} "
                                  f"below threshold/ambiguous - manual")
             out.append(row)
             continue
