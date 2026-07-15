@@ -93,6 +93,7 @@ Before doing anything:
 | [`ayunit://docs/checkeddate/usage`](ayunit://docs/checkeddate/usage) | The lock this skill respects and never advances. |
 | [`ayunit://docs/transaction/fixes`](ayunit://docs/transaction/fixes) | Recipe library — leaves reference this; the orchestrator does not. |
 | [`ayunit://docs/backoffice/decision-tree`](ayunit://docs/backoffice/decision-tree) | E1–E7 error catalogue that the Daily Control signals point into. |
+| [`references/deactivated-fund-residue.md`](references/deactivated-fund-residue.md) | **Local recipe.** Pattern + detection + fix for `PENDING` rows whose Asset resolves to a `Global.Asset.Activated = FALSE` fund with no account history — the routine's Step 3 pre-classifier applies this before any leaf. Ships the `[PR-IGN-DEACT]` `AgentCheck` tag. |
 
 ## Tools this skill calls directly
 
@@ -259,8 +260,32 @@ If **no divergence** and **no residual PENDING** for the account, mark
 
 #### 3.2 — Step 3: route to leaves
 
-For each divergence line whose `proposed_route` maps to a leaf skill,
-invoke the leaf **scoped to that account + date window**, in this order:
+**Pre-classifier — deactivated-fund residue (must run before any leaf).**
+Before invoking `pending-revalidate` or `pending-position-repair`, run the
+six-signal detection from
+[`references/deactivated-fund-residue.md`](references/deactivated-fund-residue.md)
+against every account-scoped PENDING. If **all six** flags come back `1`:
+
+- `pending_missing_price = 1` (`SystemCheck LIKE '%missing: %Price%'`)
+- `asset_deactivated = 1` (`Global.v_Asset.Activated = 0` for the row's `Asset`)
+- `no_position_history = 1` (`AccountPosition` has 0 rows for the pair)
+- `not_in_custody_window = 1` (`CustodyPosition` has no matching row ±30 days)
+- `only_this_transaction = 1` (exactly 1 row in `AccountTransaction` for the pair)
+
+apply the recipe from the reference: `Status = 'IGNORED'` via a single
+`execute_procedure(cmd='U')` call, SELECT-first-merge, `[PR-IGN-DEACT]`
+`AgentCheck` tag. **Do not invoke** `pending-revalidate` or
+`pending-position-repair` on the same pk afterwards — the PENDING is closed.
+
+This pre-classifier catches the phantom-trade risk that both leaves would
+mishandle: `pending-revalidate` would blindly promote (landing a negative
+position in an asset the account never held); `pending-position-repair`
+would refuse (LOW confidence) but only after building an empty evidence
+bundle. Neither is wrong per se; the pre-classifier is just more direct.
+
+For each **remaining** PENDING and each divergence line whose
+`proposed_route` maps to a leaf skill, invoke the leaf **scoped to that
+account + date window**, in this order:
 
 1. **A — `pending-revalidate`** — first, because it's cheap (no inference) and
    often unblocks divergences on its own (a `PENDING` promoted to `UPDATED`
