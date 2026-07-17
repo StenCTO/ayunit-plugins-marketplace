@@ -16,10 +16,14 @@ claude-plugins/                         (this repo → Azure DevOps)
 │       ├── .claude-plugin/plugin.json
 │       ├── README.md
 │       └── skills/
-│           ├── btg-offshore/
-│           ├── morgan-stanley/
 │           ├── ubs-miami/
-│           └── duplicate-trade-reconcile/
+│           ├── transaction-workday-audit/
+│           ├── pending-revalidate/
+│           ├── pending-position-repair/
+│           ├── duplicate-trade-reconcile/
+│           ├── assetrelated-fix/
+│           ├── compromissada-fix/
+│           └── position-quantity-adjustment/
 ├── .claude/
 │   └── settings.json.example           team auto-enable snippet (see below)
 └── .gitignore
@@ -94,7 +98,7 @@ Pull later updates (after anyone pushes a new plugin version) with:
 /plugin marketplace update sten-ayunit
 ```
 
-> Plugin skills are namespaced by plugin, e.g. `account-transaction:btg-offshore`,
+> Plugin skills are namespaced by plugin, e.g. `account-transaction:ubs-miami`,
 > `account-transaction:duplicate-trade-reconcile`.
 
 ## Optional: auto-enable for the whole team (no manual install)
@@ -163,7 +167,9 @@ Then add it to `.claude-plugin/marketplace.json`:
 
 | Plugin | Version | Skills |
 |---|---|---|
-| `account-transaction` | 0.9.1 | `btg-offshore`, `morgan-stanley`, `ubs-miami`, `duplicate-trade-reconcile`, `compromissada-fix`, `assetrelated-fix` |
+| `account-transaction` | 0.11.1 | `ubs-miami`, `transaction-workday-audit`, `pending-revalidate`, `pending-position-repair`, `duplicate-trade-reconcile`, `assetrelated-fix`, `compromissada-fix`, `position-quantity-adjustment` |
 | `position` | 0.1.0 | `inception-position` |
-| `asset` | 0.2.0 | `asset-register`, `register-br-funds` |
-| `routines` | 0.1.0 | `daily-btg-offshore-routine` |
+| `asset` | 0.5.0 | `asset-register`, `asset-lookup`, `asset-price-history`, `assetcustody-fill`, `register-br-funds` |
+| `anbima-data` | 0.3.0 | `anbima-funds-data`, `anbima-funds-historical-data`, `anbima-funds-explorer` |
+| `routines` | 0.2.8 | `daily-btg-onshore-routine` |
+| `marketplace-tools` | 0.2.0 | `skill-review`, `artifact-review` (+ `/skill-new` command) |

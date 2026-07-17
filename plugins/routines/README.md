@@ -15,11 +15,11 @@ manually — just type the trigger phrase in chat.
 
 | Skill | Cadence | What it does |
 |---|---|---|
-| `daily-btg-offshore-routine` | Daily, 08:00 BRT Mon–Fri | Loads yesterday's BTG (Cayman) trades, triages stuck PENDING income, reconciles duplicate trades, writes a per-day JSON+markdown report to `~/Documents/sten-routines/reports/`. Idempotent (state lock per date). |
+| `daily-btg-onshore-routine` | Daily, 08:00 BRT Mon–Fri | Enumerates BTG onshore accounts whose `CheckedDate` lags behind the latest `CustodyPosition` snapshot, walks each through an `AccountPosition ↔ CustodyPosition` reconciliation, routes each defect to the appropriate leaf skill (`asset-register`, `pending-revalidate`, `pending-position-repair`, `assetrelated-fix`, `duplicate-trade-reconcile`, `position-quantity-adjustment`), re-runs the PortfolioCreator between fixes, and emits a per-run JSON + markdown report to `~/Documents/sten-routines/reports/`. Idempotent (state lock per date). Never advances `CheckedDate` — that's the analyst's approval step. |
 
-More routines (Morgan Stanley daily, UBS Miami daily, weekly position
-reconcile, monthly compromissada audit) will be added once the BTG pattern is
-proven.
+More routines (offshore twin, Morgan Stanley daily, UBS Miami daily, weekly
+position reconcile, monthly compromissada audit) will be added as the pattern
+extends.
 
 ## Design contract
 
@@ -47,7 +47,7 @@ proven.
 1. Install this plugin: `/plugin install routines@sten-ayunit`.
 2. Open **Routines → New routine → Local**.
 3. Cron: `0 8 * * 1-5` (08:00 weekdays).
-4. Prompt: *"Run the routines:daily-btg-offshore-routine skill for yesterday's date."*
+4. Prompt: *"Run the routines:daily-btg-onshore-routine skill for yesterday's date."*
 
 Caveat: Desktop scheduled tasks only fire **while Claude Cowork Desktop is
 open and the computer is awake** — if the analyst's laptop is closed at
@@ -71,4 +71,4 @@ and migrate to `/schedule` (Anthropic-hosted) — out of scope here.
 6. Register a new Desktop scheduled task with the appropriate prompt.
 
 ---
-_Sten Capital · v0.1.0_
+_Sten Capital · v0.2.8_
