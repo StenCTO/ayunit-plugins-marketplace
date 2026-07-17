@@ -147,19 +147,52 @@ WHERE Account IN (…) AND Custody = … AND Activated = 1 ORDER BY Account, Dat
   is audit-sensitive and a **user decision** (it triggers the full recoil cycle). Report it; don't
   touch the lock silently.
 
-### 5 — Dry-run, confirm, delete, verify
+### 5 — Two-phase autonomous cleanup (IGNORE → verify → DELETE)
 
-1. **Present the plan.** For each cluster, show a table: every candidate row with `Date`,
-   `SettlementDate`, `Status`, `Quantity`, `Price`, `|Value|`, the custody delta it's reconciled
-   against, and the verdict (**KEEP** / **DELETE — duplicate** / **REPORT** / **LOCK-BLOCKED**).
-2. **Dry-run the batch.** Build `items` of `{procedure:'Portfolio.AccountTransaction_Update',
-   cmd:'D', params:{pk_AccountTransactionID:…}}` for the DELETE rows, and call `execute_batch` with
-   `allow_destructive=true, dry_run=true`. Confirm every item validates and `failed_index` is null.
-3. **Commit.** Get the user's go-ahead (unless they pre-authorised auto-delete for high-confidence),
-   then re-call with `dry_run=false`. The batch is atomic — on any failure nothing commits.
-4. **Verify sweep.** Re-SELECT the deleted pks (expect zero rows) and the kept pk (expect it still
-   present, `VALIDATED`/`UPDATED`). Re-state that the kept quantity equals the custody delta. If the
-   kept row impacts positions, mention `AccountPosition` is now single-counted.
+For a HIGH-confidence duplicate, apply the **two-phase autonomous pattern**.
+This replaces the previous "dry-run → ask user → delete" flow (which the user
+corrected on 2026-07-15 as unnecessary friction). The verification step
+between phases IS the safety gate — do not pause to ask.
+
+1. **Present the plan** in the reply. For each cluster, show a table: every
+   candidate row with `Date`, `SettlementDate`, `Status`, `Quantity`,
+   `Price`, `|Value|`, the custody delta, verdict (**KEEP** / **DUPLICATE**
+   / **REPORT** / **LOCK-BLOCKED**), and — for each duplicate — the
+   canonical row it duplicates.
+2. **Phase 1 — U to IGNORED (autonomous, non-destructive).** SELECT-first-
+   merge each duplicate row, drop `AccountCurrency`/`AccountFx`, preserve
+   `RawTransaction`, absolute values, overlay `Status = 'IGNORED'`. Set
+   `AgentCheck` to
+   `"REVERT/DUP <YYYY-MM-DD>: duplicate of canonical pk <N> (cluster on
+   Date/Asset/|Value|; custody delta ties to canonical). Phase 1 ->
+   IGNORED, DELETE after recompute verifies [DUP-REVERT]"`.
+   Commit via `execute_procedure` or `execute_batch` (multi-row atomic; no
+   `allow_destructive` needed for `U`).
+3. **Recompute** `calculate_portfolio(end_date = <caller's end_date, else
+   the target reconciliation date>, client_accounts = [<acct>], …)`. Do
+   **not** silently extend `end_date` beyond the caller's target — verified
+   2026-07-15 that a caller-scoped 2026-04-30 recompute finished in ~35s
+   vs a full-history equivalent that timed out at 520s.
+4. **Verify.** Re-SELECT the affected `AccountPosition` at the target date
+   for every asset the cluster touched (including cash — `Asset = 'BRL'`).
+   Confirm book vs custody now matches to <R$1 per asset. If it does not
+   (e.g. wrong row was flagged), issue a single `CMD='U'` to flip the
+   IGNORED rows back to `VALIDATED`/`UPDATED`, recompute again, and report
+   the ambiguous case for human review.
+5. **Phase 2 — D delete (autonomous, only after Phase-1 verification).**
+   Build `items` of `{procedure:'Portfolio.AccountTransaction_Update',
+   cmd:'D', params:{pk_AccountTransactionID:…}}` for the previously-IGNORED
+   duplicates. Dry-run once (`dry_run=true, allow_destructive=true`) to
+   confirm the shape validates; commit (`dry_run=false`). Atomic.
+6. **Final sweep.** Re-SELECT the deleted pks (expect zero rows) and the
+   kept pk (expect `VALIDATED`/`UPDATED`, quantity equals custody delta).
+   Report `AccountPosition` is now single-counted.
+
+**Autonomy contract**: Phase 1 (IGNORE) is fully reversible via a single U
+back to `VALIDATED`. Phase 2 (DELETE) is irreversible but only fires after
+verification proves the reconciliation. This is safe enough to run without
+user go-ahead. Only escalate to human when the classifier is ambiguous
+about **which** row of the pair is the duplicate.
 
 ### 6 — Report buckets
 
@@ -172,13 +205,20 @@ End every run with these buckets so nothing is silently dropped:
 | **Reported — no custody / ambiguous** | can't prove duplicate (custody missing, deltas don't tie, mixed values, unclear which to keep) | **user decision**; show the cluster + custody evidence so they can call it |
 | **Lock-blocked** | a duplicate whose `Date`/`SettlementDate` ≤ the account's active CheckedDate | needs a CheckedDate move (user-approved, audited, via `Portfolio.CheckedDate_Update` — not allowlisted, emit a copy-paste `EXEC`), then re-run this skill |
 
-## Delete vs IGNORE
+## Delete vs IGNORE — always both, in order
 
-Default for a proven duplicate is **delete** (`@CMD='D'`) — it has no economic reason to exist and is
-pure noise. Use **IGNORE** (`@CMD='U'`, `Status='IGNORED'`, carrying every column + `AccountCurrency`
-/ `AccountFx` dropped, set `AgentCheck`) instead only when the user wants to **retain an audit trail**
-of the bad row rather than remove it, or when a row is entangled (e.g. referenced elsewhere). When in
-doubt which the user prefers, ask — deletion is irreversible.
+The default for a proven duplicate is the **two-phase** flow: IGNORE first
+(`@CMD='U'`, `Status='IGNORED'`, SELECT-first-merge, drop
+`AccountCurrency`/`AccountFx`, set `AgentCheck` with `[DUP-REVERT]`), then
+DELETE (`@CMD='D'`) after the recompute proves reconciliation. IGNORE alone
+is not enough (it leaves noise in the table permanently); DELETE alone is
+too dangerous (no reversal window if identification was wrong). Together
+they are safe and clean.
+
+Retain the row as `IGNORED` permanently (skip Phase 2) only when the row is
+entangled with other data (referenced elsewhere), or when the user has
+explicitly asked to preserve the audit trail. Default is always DELETE
+after verification.
 
 ## Critical rules
 
@@ -189,10 +229,25 @@ doubt which the user prefers, ask — deletion is irreversible.
 - **Cluster discipline.** Only rows sharing the same `(Account, Custody, Asset)` and the same
   `|Value|` are candidate duplicates of one event. Different values = different trades unless custody
   explicitly says otherwise.
+- **Cash-only duplicates count.** WITHDRAW / DEPOSIT / GL RECEIPT / DELIVERY
+  on `Asset='BRL'` do NOT surface as a `QtyMismatchAssets` signal — they touch
+  cash, not a security. Always sweep the cash-inclusive
+  `(Date, TransactionType, ABS(Value), GLD)` cluster query on the whole account
+  in-window; do not rely on qty-mismatch surface signals alone (learned
+  2026-07-15 on 004434113 pk 52321 WITHDRAW BRL 50050.10).
 - **Keep the one that ties to custody**, preferring the latest confirmed restatement; delete the
   provisional / superseded copies.
-- **Dry-run before every commit**, and **verify after** (deleted pks gone, kept pk reconciles).
-- **Deletion is irreversible** — when confidence is anything less than high, report instead.
+- **Two-phase IGNORE→verify→DELETE, autonomous.** Do not pause for user
+  go-ahead on the DELETE — the recompute + verify step between phases is
+  the safety gate. Only escalate to human when the classifier is ambiguous
+  about which row of a pair is the duplicate.
+- **Respect the caller's `end_date`.** When invoked from a routine or a
+  user request scoped to a specific date, recompute to that date only. Do
+  not silently extend to `LastCustodyPositionDate` — that inflates recompute
+  cost (verified 2026-07-15: scoped 2026-04-30 = 35s, full-history = 520s
+  transport timeout).
+- **Deletion is irreversible** — when confidence is anything less than
+  high, stop at Phase 1 (IGNORE) and report.
 - **Reply in the user's language** (PT/EN) and echo the resolved scope.
 
 ## When unsure

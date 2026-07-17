@@ -59,8 +59,9 @@ recoverable by design.
 | C | `account-transaction:pending-position-repair` | Repair a `PENDING` row that has no valid custody identifier by inferring `(Asset, direction)` from the `AccountPosition ↔ CustodyPosition` delta on the same account/date. Custody-agnostic. |
 | D | `account-transaction:duplicate-trade-reconcile` | Detect and (lock-aware) remove restated / double-loaded trades against `Portfolio.v_CustodyPosition`. |
 | E | `account-transaction:position-quantity-adjustment` | For unexplained quantity deltas that reconcile against no upstream trade, write a reconciliation plug (BUY/SELL for non-cash, GL RECEIPT/DELIVERY for cash — never DEPOSIT/WITHDRAW, never ASSET RECEIPT/DELIVERY). Human-confirmed. |
-| F | `asset:asset-lookup` | **Read-only pre-check** (added 2026-07-15). Before any `asset-register` hand-off, resolve the unknown custody identifier through `identify_asset` (Global.Asset direct match on ISIN/CUSIP/CNPJ/ANBIMA/…), then `Portfolio.v_AssetCustody` (per-custody `TickerCustody`/`TickerCustody2` mapping). Verified real BTG cases (NTN-B `assetCode 307807`, CDB `CDB4267Z8IU`, EXES `Cnpj 44173493000137`) resolve HERE without needing new registration — the routine skips `asset-register` and instead flags the loader-mapping gap. |
+| F | `asset:asset-lookup` | **Read-only pre-check** (added 2026-07-15). Before any `asset-register` hand-off, resolve the unknown custody identifier through `identify_asset` (Global.Asset direct match on ISIN/CUSIP/CNPJ/ANBIMA/…), then `Portfolio.v_AssetCustody` (per-custody `TickerCustody`/`TickerCustody2` mapping). Verified real BTG cases (NTN-B `assetCode 307807`, CDB `CDB4267Z8IU`, EXES `Cnpj 44173493000137`) resolve HERE without needing new registration — the routine skips `asset-register` and instead invokes `assetcustody-fill` (leaf H) below. |
 | G | `asset:asset-register` | (Referenced, not auto-invoked.) When Step 3 surfaces an unregistered custody identifier **AND `asset-lookup` returned `NOT_FOUND`**, hand off to this skill; the routine will pick the affected `PENDING` pks up on the next re-run. Never call `asset-register` without `asset-lookup` first — verified 2026-07-15 that 3 of 4 candidate "unregistered" assets on this run were in fact already registered. |
+| H | `asset:assetcustody-fill` | **Upstream mapping fix** (added 2026-07-17). When `asset-lookup` returns HIGH on a `Global.Asset` code but the per-custody `Portfolio.AssetCustody` row is missing (or the loader failed to consult it), this leaf INSERTs the missing translation row via `Portfolio.AssetCustody_Update @CMD='I'` and back-fills every affected `Portfolio.CustodyPosition` row via `Portfolio.CustodyPosition_Update @CMD='Update_Missing_Asset'`. Then emits an `unblocked_pks` list for `pending-revalidate` to promote the affected transactions. Fixes the mapping ONCE (O(unique tickers)) instead of O(rows). Verified BTG cases: `44173493000137` (EXES CNPJ), `5833358` (EXES BTG numeric AssetR), `CDB4267Z8IU` (BTG AnbimaCode). |
 
 Each leaf's own `SKILL.md` is **the** authority for its inputs, outputs, and
 guardrails. This orchestrator must not duplicate that logic — it decides scope,
@@ -71,13 +72,15 @@ supplies evidence bundles, and reads the leaf's structured result.
 | Input | Default | Notes |
 |---|---|---|
 | `accounts` | all BTG onshore accounts returned by the audit query (§Step 1), ordered by `PendingTrades DESC, UnmatchedAssets DESC, Account` | Narrow to one account or an explicit list for testing. |
+| `end_date` | *per-account* `LastCustodyPositionDate` from `get_daily_control` | Explicit reconcile target date. When the caller supplies one (e.g. "reconcile 004434113 to 2026-04-30"), **use it verbatim** for Step 2 diff SELECTs, Step 3.4 `calculate_portfolio(end_date=…)`, and Step 3.5 re-verify. Do NOT silently extend to `LastCustodyPositionDate` "for downstream consistency" — that inflates recompute cost (verified 2026-07-15: user-scoped 2026-04-30 recompute took ~35s vs the full-history equivalent that had timed out at 520s). Only fall back to `LastCustodyPositionDate` when the caller did not specify `end_date`. |
 | `dry_run` | `false` | `true` → every leaf skill is also dry-run / read-only; PortfolioCreator is not triggered; no state lock; report written under `dry-run/`. |
 | `force` | `false` | `true` → ignore the day's state lock and run anyway. Use only on a confirmed crash mid-way. |
 | `max_accounts` | `null` (all) | Optional cap; useful for a first-run smoke test. |
 
-**Echo the resolved `(accounts, dry_run, force, max_accounts)` at the start of
-every reply.** If `dry_run = true`, prefix every status line with `[DRY-RUN]`.
-Reply in the analyst's language (PT or EN); JSON field names always in English.
+**Echo the resolved `(accounts, end_date, dry_run, force, max_accounts)` at the
+start of every reply.** If `dry_run = true`, prefix every status line with
+`[DRY-RUN]`. Reply in the analyst's language (PT or EN); JSON field names
+always in English.
 
 ## State / idempotency
 
@@ -241,8 +244,9 @@ Each account produces one `AccountRun` object matching the schema in
 
 #### 3.1 — Step 2: position diff (AccountPosition ↔ CustodyPosition)
 
-On the account's `LastCustodyPositionDate`, full-outer-join the two views on
-`Asset`. This is the SCAcc-equivalent the analyst does by hand — the doc
+On the account's **target date** (the caller-supplied `end_date`, else
+`LastCustodyPositionDate`), full-outer-join the two views on `Asset`. This is
+the SCAcc-equivalent the analyst does by hand — the doc
 `position/reconciliation` explicitly recommends `execute_select_query` on the
 two views over calling `SCAcc` (which is not allowlisted).
 
@@ -336,14 +340,47 @@ at the bottom.
 
 Pre-classifier order (fixed — do not reorder):
 
+0. **`assetcustody-fill`** (leaf H) — **MUST run first when the account has any
+   PENDING with `Asset IS NULL AND CustodyIdentifier IS NOT NULL`, or when
+   `v_CustodyPosition` for the account/window has any row with `Asset IS NULL
+   AND AssetR IS NOT NULL`**. Discovers the unmapped identifiers, runs
+   `asset-lookup` (leaf F) on each, INSERTs any HIGH resolutions into
+   `Portfolio.AssetCustody` via the allowlisted `AssetCustody_Update
+   @CMD='I'`, then calls `Portfolio.CustodyPosition_Update @CMD='Update_Missing_Asset'`
+   to back-fill every custody row cascading from the new mapping. Returns
+   an `unblocked_pks` list which the routine feeds to `pending-revalidate`
+   later in Step 3.3.A. This ordering is critical: fixing the mapping ONCE
+   is O(unique tickers); patching pks individually via `pending-revalidate`
+   / `pending-position-repair` is O(rows) and misses the shared
+   `CustodyPosition` back-fill. Verified 2026-07-17: a fleet-wide run
+   surfaced ~87 no-Asset PENDING rows spanning ~30 unique identifiers —
+   without this step, each row required a bespoke asset-lookup + U;
+   with this step, ~30 INSERTs + one back-fill call unblock the whole
+   surface.
+
 1. **`duplicate-first-pass`** ([recipe](references/duplicate-first-pass.md))
-   — MUST run first on every candidate PENDING. Detects a PENDING that
-   duplicates a canonical VALIDATED/UPDATED sibling on
-   `(Account, Custody, Date, TransactionType, Asset via AssetRelated
-   cross-match, ABS Value)`. If matched, IGNORE the PENDING (canonical
-   survives). Tag `[DUP-REVERT]`. **This ordering is non-negotiable** —
-   promoting a duplicated PENDING via any leaf lands double-counts in
-   position (learned via failure 2026-07-15 on account 005132370).
+   — MUST run first on every candidate PENDING **and** as an
+   account-wide sweep across all in-window `VALIDATED`/`UPDATED` rows.
+   Two detection modes now live in this recipe:
+   - **Mode A (PENDING vs canonical)**: a PENDING row that duplicates a
+     canonical VALIDATED/UPDATED sibling on `(Account, Custody, Date,
+     TransactionType, Asset via AssetRelated cross-match, ABS Value)`.
+     IGNORE the PENDING; canonical survives.
+   - **Mode B (feed re-load duplicate on any status, incl. cash-only rows)**:
+     an account-wide sweep on `(Account, Custody, Date, TransactionType,
+     ABS(Value), GeneralLedgerDescription)` returning any group with
+     `COUNT(*) > 1`. Distinguish real re-load duplicates (large `InputDate`
+     gap, sequential re-load PK block) from legitimate same-value events
+     (sequential PKs, same `InputDate`, distinct bond coupons). Apply IGNORE
+     to the later-inserted row of each proven pair. **Cash-only rows
+     (WITHDRAW/DEPOSIT/GL RECEIPT/DELIVERY on `Asset='BRL'`) count too** —
+     `QtyMismatchAssets` never fires on them, so relying on that signal
+     alone silently misses cash duplicates (learned 2026-07-15 on account
+     004434113: two `WITHDRAW BRL 50050.10` pks — 48814 and 52321 — from a
+     2026-05-01 re-load).
+   Tag `[DUP-REVERT]`. **Ordering non-negotiable** — promoting a duplicated
+   PENDING via any leaf lands double-counts in position (learned via failure
+   2026-07-15 on account 005132370).
 2. **`troca-de-nome`** ([recipe](references/troca-de-nome.md)) — FII
    name-change swap cluster misclassified by the loader as BUY/SELL at peg
    prices. Reclassify to ASSET RECEIPT/DELIVERY, zero Value/ValueGross.
@@ -367,6 +404,10 @@ Then, for each **remaining** PENDING and each divergence line whose
 account + date window**, in this order:
 
 - **A — `pending-revalidate`** — Bucket 3-A / 3-B / 3-C blockers cleared.
+  **Scope hint**: prepend the `unblocked_pks` list returned by
+  `assetcustody-fill` (Step 3.3 preclassifier #0). Those pks are guaranteed
+  to have their Asset auto-matched on the next U (auto-validator §8) because
+  the mapping now exists in `v_AssetCustody`.
 - **B — `assetrelated-fix`** — GL income rows still PENDING after (A).
 - **C — `pending-position-repair`** — PENDING rows still stuck and
   accompanied by a matching divergence line. Pass the leaf a structured
@@ -374,7 +415,14 @@ account + date window**, in this order:
   custody_row, book_row}`. HIGH-confidence only.
 - **D — `duplicate-trade-reconcile`** — when Step 2 flagged a wrong-sign /
   restatement pattern **AND** neither row is PENDING (that case belongs to
-  `duplicate-first-pass` above).
+  `duplicate-first-pass` above). The leaf now runs the **two-phase
+  autonomous** pattern (see `duplicate-trade-reconcile` §Delete-vs-IGNORE):
+  Phase 1 `CMD='U' Status='IGNORED'` (safe, reversible, drops the row from
+  `AccountPosition`), recompute + verify positions match custody, then
+  Phase 2 `CMD='D'` delete once reconciliation confirms. **Do not pause to
+  ask the user for the delete** — the verify step between phases is the
+  safety gate. Only escalate to human when identification of which row is
+  the duplicate is ambiguous.
 - **E — `position-quantity-adjustment`** — residual delta after A–D
   reconciles against no upstream trade AND caller has pre-authorised plugs
   (default: skip; report as human-action).
@@ -412,13 +460,21 @@ recompute:
 
 ```
 mcp__ayunit__calculate_portfolio(
-    end_date = "<LastCustodyPositionDate>",
+    end_date = "<caller's end_date, else LastCustodyPositionDate>",
     client_accounts = ["<account exactly as stored in Global.v_ClientAccount.ClientAccount>"],
     create_after_checked_date = true,   # default; rebuilds only past-lock rows
     run_validation = false,
     consider_cpr = false
 )
 ```
+
+**End-date discipline**: pass the caller's `end_date` verbatim. Never extend
+to `LastCustodyPositionDate` to "keep downstream consistent" — the caller
+explicitly scoped the reconcile to that date; downstream days remain their
+own problem (the routine or the analyst can re-run for a later date later).
+Verified 2026-07-15 on account 004434113: a caller-scoped 2026-04-30
+recompute finished in ~35s; the equivalent full-history (2026-07-10) call
+had timed out the transport at 520s.
 
 Notes on the call:
 
@@ -453,10 +509,10 @@ Verify the outcome in this order (stop at the first authoritative answer):
    FROM Portfolio.v_AccountPosition
    WHERE Account = '<account>' AND Custody = 'BTG'
      AND CAST([Date] AS date) BETWEEN
-         DATEADD(day, 1, '<LastCheckedDate>') AND '<LastCustodyPositionDate>';
+         DATEADD(day, 1, '<LastCheckedDate>') AND '<end_date>';
    ```
-   `MaxAccountPositionDate = LastCustodyPositionDate` and `RowsInWindow > 0`
-   → the recalc landed. Otherwise it did not, regardless of what the job said.
+   `MaxAccountPositionDate = end_date` and `RowsInWindow > 0` → the recalc
+   landed. Otherwise it did not, regardless of what the job said.
 
 Capture the merged outcome into `step4_portfolio_creator` per the schema:
 `job_id`, `job_status` (from poll — may be `null` if all polls 404'd),

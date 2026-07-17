@@ -106,9 +106,94 @@ If **both** rows are PENDING (rare — usually the loader promotes one canonical
 
 `[DUP-REVERT]` — distinct from every other write path. The audit query can filter this bucket to review orchestrator-applied dedups without noise from other categories.
 
+## Mode B — Account-wide cash-inclusive sweep (added 2026-07-15)
+
+Mode A (above) catches PENDING duplicates of a canonical VALIDATED/UPDATED
+row. It **misses** the sibling pattern where a re-load creates two
+`VALIDATED/UPDATED` rows for the same event on cash-only trades — because
+those never surface as a `QtyMismatchAssets` signal (they touch `BRL`, not
+a security). Verified 2026-07-15 on account 004434113: pk 48814 (WITHDRAW
+BRL 50050.10, originally PENDING then promoted this morning) had a sibling
+pk 52321 (WITHDRAW BRL 50050.10, VALIDATED, `InputDate` 2026-05-01) from
+the same re-load batch that also duplicated the SULAMEX SELL pair
+52319/52320. The SULAMEX duplicates surfaced via qty mismatch; the
+WITHDRAW duplicate stayed hidden until the analyst caught it manually.
+
+### Mode B detection query
+
+Sweep every in-window row on the account and cluster by economic key:
+
+```sql
+SELECT CAST(Date AS date) AS dt, TransactionType, Asset,
+       ABS(Value) AS abs_val, GeneralLedgerDescription,
+       COUNT(*) AS n,
+       STRING_AGG(CAST(pk_AccountTransactionID AS varchar), ',') AS pks,
+       STRING_AGG(Status, ',') AS statuses,
+       MIN(InputDate) AS earliest_input,
+       MAX(InputDate) AS latest_input
+FROM Portfolio.v_AccountTransaction
+WHERE Custody = @custody
+  AND ClientAccount = @acct
+  AND Status IN ('VALIDATED','UPDATED')
+  AND CAST(Date AS date) BETWEEN @lock_plus_1 AND @end_date
+GROUP BY CAST(Date AS date), TransactionType, Asset,
+         ABS(Value), GeneralLedgerDescription
+HAVING COUNT(*) > 1
+ORDER BY dt, TransactionType;
+```
+
+### Real-duplicate vs coincident-value discriminator
+
+For each returned group, apply this test — do **not** IGNORE unless it
+proves out:
+
+| Signal | Real re-load duplicate | Legitimate distinct events |
+|---|---|---|
+| `latest_input − earliest_input` | days or weeks apart | seconds (same feed batch) |
+| PK cluster | one row from original batch, later row in a distant re-load block (e.g. 48xxx original vs 52xxx re-load) | strictly sequential (48688, 48691) |
+| `GeneralLedgerDescription` verbatim | identical | identical |
+| `Value` magnitude | identical to the cent | often near-identical but not exact |
+| **Custody delta corroboration** | day-over-day `CustodyPosition` change on the affected `Asset` matches **one** row's impact, not both | matches **both** rows summed |
+
+**All five** signals must align for Mode B to auto-IGNORE. If custody is
+missing or the group has near-identical values (two different bond
+coupons paying similar cents on the same day — verified 2026-07-15 pairs
+48688/48691 JUROS R$167.28 and 48689/48690 AMORTIZAÇÃO R$166.43 on
+004434113 which were distinct bond coupons, not duplicates), **do not
+touch them** — report as investigation candidates.
+
+### Fix recipe (Mode B) — two-phase IGNORE→verify→DELETE
+
+Unlike Mode A (which leaves the PENDING duplicate as an `IGNORED` audit
+row permanently), Mode B duplicates are safe to **delete** after the
+recompute proves positions reconcile — no reason to keep a phantom
+re-loaded row. Apply the two-phase pattern from
+`duplicate-trade-reconcile`:
+
+1. **Phase 1 — U to IGNORED (autonomous)**: SELECT-first-merge the
+   later-inserted row (higher `InputDate`), overlay `Status = 'IGNORED'`,
+   set `AgentCheck = "REVERT/DUP <YYYY-MM-DD>: feed-reload duplicate of
+   canonical pk <N> (InputDate <old> vs <new>); Phase 1 -> IGNORED,
+   DELETE after recompute verifies [DUP-REVERT]"`.
+2. **Recompute** `calculate_portfolio(end_date = <caller's end_date>, ...)`.
+3. **Verify**: Step 3.5 re-diff shows the previously-doubled asset (or
+   cash balance) now matches custody.
+4. **Phase 2 — D delete (autonomous)**: `CMD='D'` on the same pk. Do not
+   pause for user confirmation — verification is the safety gate.
+
+If the verify at step 3 does not resolve, restore `Status =
+'VALIDATED'` on the paused row (single U), recompute again, and report
+the case for human review.
+
 ## What this is NOT
 
-- **Not full duplicate-trade-reconcile.** This first-pass only handles the case where a **PENDING** row duplicates an already-canonical VALIDATED/UPDATED sibling. Duplicate clusters of two VALIDATED rows (both promoted, both wrong) belong to `duplicate-trade-reconcile`, which reads `CustodyPosition` for ground truth.
+- **Not full duplicate-trade-reconcile.** This first-pass only handles two
+  cases: (Mode A) a **PENDING** row duplicates an already-canonical
+  VALIDATED/UPDATED sibling; (Mode B) an account-wide sweep for feed-reload
+  duplicate clusters on any status. Broader duplicate clusters — mixed
+  status, restated NAVs, multi-day settlement patterns — belong to
+  `duplicate-trade-reconcile`, which reads `CustodyPosition` for ground
+  truth.
 - **Not price/quantity comparison.** The match is on `(Account, Custody, Date, TransactionType, Asset-or-AssetRelated, ABS(Value))`. Quantity is not in the key because two feeds can round differently while representing the same event.
 - **Not for structurally-different but economically-similar trades.** If the two rows have different TransactionTypes (e.g. one BUY and one ASSET RECEIPT), that's a **misclassification** case (see `troca-de-nome.md`), not a duplicate.
 
