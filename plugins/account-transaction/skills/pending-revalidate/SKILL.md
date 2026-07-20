@@ -1,6 +1,6 @@
 ---
 name: pending-revalidate
-description: "Use when the user wants to re-run the loader validators on Portfolio.AccountTransaction rows that were left PENDING because a prerequisite was not yet in master data (asset unmapped in Portfolio.AssetCustody, missing price in AssetData, missing quantity derivable from Value/Price), and the prerequisite is NOW available. This skill takes a scope (pk list, account/custody window, or a filter), classifies each PENDING row's blocker from the loader's own SystemCheck diagnostic, verifies the blocker has cleared today, lock-gates against CheckedDate, and re-invokes Portfolio.AccountTransaction_Update @CMD='U' via a SELECT-first-merge so the procedure's built-in auto-validators (auto-match Asset, auto-fill Price, auto-fill Quantity) fire again and promote the row. Custody-agnostic. Sibling of transaction-workday-audit (Check 3 is the detector; this skill is the fix), duplicate-trade-reconcile, assetrelated-fix, compromissada-fix. Trigger whenever the user says re-validate / re-processar / promote PENDING / 'the mapping was added, now retry the tape' / 'try to fix these stuck rows' — or when transaction-workday-audit hands a pk list off to this skill."
+description: "Use when the user wants to re-run the loader validators on Portfolio.AccountTransaction rows that were left PENDING because a prerequisite was not yet in master data (asset unmapped in Portfolio.AssetCustody, missing price in AssetData, missing quantity derivable from Value/Price), and the prerequisite is NOW available. This skill takes a scope (pk list, account/custody window, or a filter), classifies each PENDING row's blocker from the loader's own SystemCheck diagnostic, verifies the blocker has cleared today, lock-gates against CheckedDate, and re-invokes Portfolio.AccountTransaction_Update @CMD='U' via a SELECT-first-merge so the procedure's built-in auto-validators (auto-match Asset, auto-fill Price, auto-fill Quantity) fire again and promote the row. Custody-agnostic. Sibling of transaction-workday-audit (Check 2 Step 3 is the detector; this skill is the fix — the SystemCheck classifier lives there), duplicate-trade-reconcile, assetrelated-fix, compromissada-fix. Trigger whenever the user says re-validate / re-processar / promote PENDING / 'the mapping was added, now retry the tape' / 'try to fix these stuck rows' — or when transaction-workday-audit hands a pk list off to this skill."
 ---
 
 # Re-validate stuck `PENDING` rows against current master data
@@ -85,7 +85,7 @@ Report them under **Skipped — already resolved**.
 
 ### 2 — Classify each row's blocker
 
-Same grammar as `transaction-workday-audit` Check 3. Read the `SystemCheck`
+Same grammar as `transaction-workday-audit` Check 2 Step 3. Read the `SystemCheck`
 text (verified production examples):
 
 | Bucket | `SystemCheck` signal (order matters — check `AssetRelated` before generic `Asset`) |

@@ -1,6 +1,6 @@
 ---
 name: new-asset-onboarding
-description: "Use when the user wants to sweep recently-inserted Portfolio.AccountTransaction rows across ALL custodies for assets not yet in Global.Asset or not yet mapped in Portfolio.AssetCustody, and onboard them end-to-end — register the security in Global.Asset, add the per-custody translation row, bulk-backfill Portfolio.CustodyPosition, unblock PENDING trades, and backfill historical prices in AssetData.Price. This is an **orchestrator skill** (meta-skill): it does NOT write to the DB directly; it chains the leaf skills account-transaction:transaction-workday-audit (read-only detector), asset:asset-lookup (safety pre-check), asset:register-br-funds + asset:asset-register (registration paths), asset:assetcustody-fill (mapping + CustodyPosition backfill), account-transaction:pending-revalidate (promote unblocked PENDINGs), and asset:asset-price-history (price backfill). Runs autonomously — for Brazilian fund CNPJs the register-br-funds → asset-register chain; for other kinds (equities, options, bonds, offshore funds, FIIs, treasuries) invokes asset-register with peer-analogy classification (copies FK conventions — Issuer, AssetClass, Product, Benchmark, Source, TaxRegime — from existing assets of the same SecurityType). Ambiguous cases the orchestrator cannot safely classify are logged, not guessed. Reports go to disk AND are uploaded to Azure Blob via mcp__ayunit__upload_blob_file. Designed to run BEFORE the daily custody routines so they find zero unmapped assets. Fires on prompts like 'onboard new assets from this week', 'register any unknown assets in the last 3 days', 'sweep unmapped assets', 'run the new-asset onboarding routine', 'roda o new-asset-onboarding para os últimos 3 dias', 'cadastra os ativos novos que apareceram nos trades recentes'."
+description: "Use when the user wants to sweep recently-inserted Portfolio.AccountTransaction rows across ALL custodies for assets not yet in Global.Asset or not yet mapped in Portfolio.AssetCustody, and onboard them end-to-end — register the security in Global.Asset, add the per-custody translation row, bulk-backfill Portfolio.CustodyPosition, unblock PENDING trades, and backfill historical prices in AssetData.Price. This is an **orchestrator skill** (meta-skill): it does NOT write to the DB directly; it re-reads the four sub-detector SQL queries from account-transaction:transaction-workday-audit Check 1 (1a needs-registration / 1b needs-mapping-only / 1c needs-position-backfill / 1d needs-price-backfill) as its own detection phase — per the no-loop reciprocity convention, it does NOT invoke that audit skill via the Skill tool — then chains the leaf skills asset:asset-lookup (safety pre-check on 1a tuples), asset:register-br-funds + asset:asset-register (registration paths), asset:assetcustody-fill (mapping + CustodyPosition backfill via Update_Missing_Asset), account-transaction:pending-revalidate (promote unblocked PENDINGs), and asset:asset-price-history (price backfill). Runs autonomously — for Brazilian fund CNPJs the register-br-funds → asset-register chain; for other kinds (equities, options, bonds, offshore funds, FIIs, treasuries) invokes asset-register with peer-analogy classification (copies FK conventions — Issuer, AssetClass, Product, Benchmark, Source, TaxRegime — from existing assets of the same SecurityType). Ambiguous cases the orchestrator cannot safely classify are logged, not guessed. Reports go to disk AND are uploaded to Azure Blob via mcp__ayunit__upload_blob_file. Designed to run BEFORE the daily custody routines so they find zero unmapped assets. Fires on prompts like 'onboard new assets from this week', 'register any unknown assets in the last 3 days', 'sweep unmapped assets', 'run the new-asset onboarding routine', 'roda o new-asset-onboarding para os últimos 3 dias', 'cadastra os ativos novos que apareceram nos trades recentes'."
 ---
 
 # `new-asset-onboarding` — sweep, register, map, backfill
@@ -49,7 +49,7 @@ per-day locks.
 
 | # | Skill | Purpose |
 |---|---|---|
-| 1 | `account-transaction:transaction-workday-audit` | Read-only detector. Check 1a surfaces unmapped `(Custody, AssetCustody, CustodyIdentifier)` tuples on rows with `Asset IS NULL AND ac.Asset IS NULL`. Check 1b surfaces rows where `Asset` is set but not in `Global.Asset` (rare/corruption). |
+| 1 | `account-transaction:transaction-workday-audit` (Check 1 detector SQL only) | Source of the four onboarding-gap detector queries: **1a** unmapped tuples where no `Global.Asset` identifier matches (needs registration), **1b** unmapped tuples where a `Global.Asset` row DOES match (needs the per-custody mapping row only), **1c** `Portfolio.v_CustodyPosition` rows in the audited scope with `Asset=NULL AssetR=<code>` (needs `Update_Missing_Asset` back-fill), **1d** registered+mapped assets whose `AssetData.v_Price` coverage from earliest trade date to today has gaps. **Read only the SQL in that skill's Check 1 sub-detectors — do NOT invoke `transaction-workday-audit` recursively** (see "Reciprocity convention" below). |
 | 2 | `asset:asset-lookup` | Safety pre-check on every candidate tuple. Catches audit false-negatives — assets already in `Global.Asset` under an identifier the audit's LEFT JOIN didn't reach. |
 | 3a | `asset:register-br-funds` → `asset:asset-register` | Autonomous chain for Brazilian fund CNPJs. `register-br-funds` resolves the CNPJ to the ANBIMA classe/subclasse code, pulls the ANBIMA cadastral registry, hands a pre-filled payload to `asset-register` for the INSERT. |
 | 3b | `asset:asset-register` (peer-analogy) | For every non-BR-fund unknown (equity, option, bond, FII, treasury, offshore fund). Copies FK conventions from existing assets of the same `SecurityType` cluster (Issuer, AssetClass, Product, Benchmark, Source, TaxRegime), validates every FK against live lookup tables, previews, INSERTs via `Global.Asset_Update @CMD='I'`. Refuses to guess when no confident peer set exists — those go to `ambiguous_assets`. |
@@ -61,6 +61,32 @@ Each leaf's own `SKILL.md` is **the** authority for its inputs, outputs, and
 guardrails. This orchestrator must not duplicate that logic — it decides
 scope, aggregates results across leaves, and captures each leaf's structured
 output verbatim (leaf-output-opacity rule shared with the daily routines).
+
+### Reciprocity convention with `transaction-workday-audit` — no loop
+
+`account-transaction:transaction-workday-audit` Check 1 is an **executing**
+orchestrator: it detects the four onboarding gaps and, when any is non-zero,
+invokes THIS skill (`new-asset-onboarding`) exactly once to execute the fix.
+So the call graph is:
+
+```
+transaction-workday-audit Check 1  ──invokes──▶  new-asset-onboarding
+       ▲                                                 │
+       │           (must NOT re-invoke ─ would loop)     ▼
+       └─────────────────────────  reads Check 1's detector SQL directly
+```
+
+**Rule for this skill.** When gathering Step 1's detection input, this skill
+**executes the SQL** documented in `transaction-workday-audit` Check 1's
+sub-detectors 1a / 1b / 1c / 1d directly via `mcp__ayunit__execute_select_query`.
+It does NOT invoke `transaction-workday-audit` via the `Skill` tool — that
+would create the cycle `Check 1 → new-asset-onboarding → transaction-workday-audit
+→ Check 1`. The audit is the source of truth for those queries; this skill
+copies them (or points at them) for its detection phase only.
+
+If the queries in `transaction-workday-audit` Check 1 change, propagate the
+change here in the same commit (see the doc-coherence rule in the repo-level
+CLAUDE.md).
 
 ## Inputs
 
@@ -114,13 +140,21 @@ Before doing anything:
 
 ## Tools this skill calls directly
 
-- `mcp__ayunit__execute_select_query` — only the verify SELECT in §6 (re-run
-  of Check 1a on the same window). All other reads happen through the
-  leaf skills.
+- `mcp__ayunit__execute_select_query` — Step 1 detection (executes the four
+  sub-detector SQL queries documented in `account-transaction:transaction-workday-audit`
+  Check 1 — sub-detectors 1a / 1b / 1c / 1d) AND Step 6 verify (re-runs the
+  same four queries). Per the reciprocity convention above, this skill reads
+  the audit's SQL and executes it directly rather than invoking the audit via
+  the `Skill` tool.
 - `mcp__ayunit__upload_blob_file` — §7 finalisation. Upload both the `.json`
   and the `.md` report to the ayunit blob store.
+- `Skill` — invoke each leaf skill in Steps 2–5 (`asset:asset-lookup`,
+  `asset:register-br-funds`, `asset:asset-register`, `asset:assetcustody-fill`,
+  `account-transaction:pending-revalidate`, `asset:asset-price-history`).
 - **No** `execute_procedure`, **no** `execute_batch(dry_run=false)` from the
   orchestrator. Every write goes through a leaf skill.
+- **Never** `Skill(account-transaction:transaction-workday-audit)` — see the
+  "Reciprocity convention" above.
 
 ## The routine
 
@@ -133,48 +167,70 @@ Before doing anything:
    `references/step-schemas.md` (`run_meta.started_at = <now>`, every step
    `status = "not_run"`).
 
-### 2 — Step 1: detect (transaction-workday-audit)
+### 2 — Step 1: detect (execute audit Check 1 SQL directly)
 
-Invoke `account-transaction:transaction-workday-audit` with the resolved
-scope:
+Execute the four sub-detector queries documented in
+`account-transaction:transaction-workday-audit` Check 1 via
+`mcp__ayunit__execute_select_query`, using the resolved scope in each query's
+`<period>` placeholder:
 
 - Period: `Date >= DATEADD(day, -<window_days>, '<end_date>') AND Date <= '<end_date>'`
-- Custody filter: `custody_filter` (empty = all)
-- Checks: **Check 1a (unmapped identifiers) + Check 1b (Asset not in
-  Global.Asset)** only. Do NOT enable the duplicate check or the stuck-
-  PENDING check — those are the custody routines' concern.
+- Custody filter (optional): apply `AND t.Custody IN (<custody_filter>)`
+  when `custody_filter` is non-empty.
+
+The four detectors and what each surfaces:
+
+| Sub-detector | What it returns | Onboarding stage the fix addresses |
+|---|---|---|
+| **1a** — `Global.Asset` missing (identifier resolves nowhere) | Tuples `{Custody, AssetCustody, CustodyIdentifier, FirstSeen, LastSeen, RowCount, Accounts, SamplePk}` where the tape's `Asset IS NULL` and NO `Global.v_Asset` row matches on any identifier column | Needs full four stages: register → map → position back-fill → price back-fill. |
+| **1b** — `Portfolio.AssetCustody` mapping missing (Global.Asset EXISTS) | Same tuple shape as 1a **plus** `{ResolvedAsset, ResolvedCount}` — the audit has already resolved which `Global.Asset` code the identifier points to (via `Cnpj`/`Isin`/`BbgCode`/etc. probe) | Needs three stages: map → position back-fill → price back-fill. **Skips** register — Global.Asset row already exists. Ambiguity guard: `ResolvedCount > 1` = multiple candidates → do NOT auto-map, flag for analyst. |
+| **1c** — `Portfolio.CustodyPosition` still `Asset=NULL AssetR=<code>` on audited (Account, Custody, period) scope | `{Custody, Account, AssetR, IsinR, AnbimaCodeR, FirstSeen, LastSeen, RowCount, TotalQuantity, TotalValue}` — rows the loader ingested before the mapping existed and never retroactively resolved | Needs position back-fill only (`assetcustody-fill`'s `CustodyPosition_Update @CMD='Update_Missing_Asset'` phase). Often overlaps with 1b — the same `assetcustody-fill` invocation clears both. |
+| **1d** — `AssetData.Price` backfill gap from earliest trade date to today | Per-asset `{Asset, Description, AssetGroup, Currency, EarliestTapeDate, LatestTapeDate, EarliestPriceDate, LatestPriceDate, PriceRowCount, ApproxBusinessDaysExpected, ApproxGapCount}` for registered+mapped assets with gaps | Needs price back-fill only (`asset-price-history` on `[EarliestTapeDate, today]` per asset). |
+| Sidebar — Asset FK broken (rare corruption) | `{Asset, Custody, FirstSeen, LastSeen, RowCount, SamplePk}` — tape rows with a non-null `Asset` code that doesn't exist in `Global.v_Asset` | Not a routine gap; flag for analyst (data corruption or a hand-deleted row). |
 
 Capture the result as JSON matching `step1_detect` in
-`references/step-schemas.md`:
+`references/step-schemas.md` — four lists (`stage_1a_needs_registration`,
+`stage_1b_needs_mapping_only`, `stage_1c_needs_position_backfill`,
+`stage_1d_needs_price_backfill`) plus `asset_fk_broken` (sidebar) and
+`pending_pks_at_risk` (the aggregated pks from 1a + 1b for later use in
+`pending-revalidate` scope).
 
-- `check_1a_unmapped_tuples`: list of `{Custody, AssetCustody, CustodyIdentifier, FirstSeen, LastSeen, RowCount, Accounts, SamplePk}`
-- `check_1b_asset_not_in_global`: list of `{pk, Asset, Custody, Date, GeneralLedgerDescription}` (should almost always be empty)
-- `pending_pks_at_risk`: aggregated set of `pk_AccountTransactionID` from all rows contributing to Check 1a (needed later for `pending-revalidate` scope; the audit already returns them per tuple)
-- `errors`: list
+If **all four sub-detector lists AND the sidebar are empty** and `errors` is
+empty → record every downstream step as `{status: "skipped", reason:
+"nothing to onboard"}` and jump to §7 (verify) then §8 (report).
 
-If **both check lists are empty** and `errors` is empty → record every
-downstream step as `{status: "skipped", reason: "nothing to onboard"}` and
-jump to §6 (verify) then §7 (report).
+### 3 — Step 2: classify (asset-lookup safety pre-check on 1a only)
 
-### 3 — Step 2: classify (asset-lookup safety pre-check)
+Sub-detectors 1b / 1c / 1d are **pre-classified by the audit itself** —
+`asset-lookup` is NOT needed for them:
 
-For each distinct tuple returned by Check 1a, invoke `asset:asset-lookup`
-with `(Custody, TickerCustody = AssetCustody or CustodyIdentifier)` as
-identifier hints. Do NOT batch into one call; the leaf can be called per
-tuple, and per-tuple output is what the report needs.
+- **1b tuples** carry `ResolvedAsset` already (the audit resolved the
+  Global.Asset code via its identifier probe). Route directly to Step 4 as
+  `stage_1b_ready_for_mapping`. If a tuple has `ResolvedCount > 1`
+  (ambiguous mapping target), route it to `ambiguous_assets` instead — do
+  NOT let `assetcustody-fill` auto-pick.
+- **1c rows** are `CustodyPosition` rows needing the `Update_Missing_Asset`
+  back-fill. Route them to Step 4 as `stage_1c_ready_for_backfill`. If any
+  1c row's custody also has a 1b tuple, the same `assetcustody-fill`
+  invocation clears both; if a 1c custody has no 1a/1b, `assetcustody-fill`
+  is still invoked in back-fill-only mode.
+- **1d assets** are registered + mapped; only prices are missing. Route
+  them directly to Step 6 as `stage_1d_ready_for_prices` — skip Steps 2, 3,
+  4, 5.
 
-For each result, place the tuple into exactly one of three buckets:
+For **1a tuples only**, invoke `asset:asset-lookup` with `(Custody,
+TickerCustody = AssetCustody or CustodyIdentifier)` as identifier hints. Do
+NOT batch — call per tuple. Route each result:
 
 | Bucket | Condition | Next step |
 |---|---|---|
-| `known_by_lookup` | Leaf returns `verdict = FOUND` on Global.Asset or v_AssetCustody | Skip register. Feed directly to Step 4 for the per-custody mapping insert (asset exists, only the AssetCustody row is missing). |
+| `known_by_lookup` | Leaf returns `verdict = FOUND` on Global.Asset or v_AssetCustody | Audit's identifier probe missed a match asset-lookup catches (rare false-negative). Skip register; feed to Step 4 alongside 1b tuples for the mapping insert. |
 | `br_fund_candidate` | Leaf returns `NOT_FOUND` **and** the identifier looks like a CNPJ (14 digits after stripping punctuation, or the raw string matches `xx.xxx.xxx/xxxx-xx`) | Register path 3a. |
 | `other_unknown` | Leaf returns `NOT_FOUND` and it's not CNPJ-shaped | Register path 3b (asset-register with peer analogy). |
 
-For Check 1b tuples, always place them into `check_1b_recheck` — the row
-already has an `Asset` code but that code doesn't exist in `Global.Asset`.
-Do NOT try to auto-register; flag as `ambiguous_assets` (this is
-corruption, not a routine gap) and let the analyst investigate.
+**Sidebar (Asset FK broken) rows** go straight to `ambiguous_assets` with
+`refusal_reason = "asset_fk_broken_corruption"` — do NOT try to auto-fix;
+this is corruption, not a routine gap.
 
 Capture as JSON matching `step2_classify`. Each bucket lists the resolved
 tuples and their sample `pk`.
@@ -216,15 +272,31 @@ Capture as JSON matching `step3_register` per the schema:
 
 ### 5 — Step 4 + 5a: map + unblock PENDING
 
-Aggregate `known_by_lookup + br_funds_registered + other_registered` into a
-single list of `(Asset, Custody, TickerCustody)` tuples and invoke
-`asset:assetcustody-fill` once. Pass `dry_run` through. Capture:
+Aggregate the mapping-ready set from Steps 2 and 3:
+
+- `known_by_lookup` (from Step 2 asset-lookup false-negative catches)
+- `br_funds_registered + other_registered` (from Step 3 registration)
+- `stage_1b_ready_for_mapping` (audit pre-classified: Global.Asset already
+  exists, only the per-custody translation row is missing)
+
+Build a single list of `(Asset, Custody, TickerCustody)` tuples and invoke
+`asset:assetcustody-fill` once. Pass `dry_run` through. The leaf also runs
+`Portfolio.CustodyPosition_Update @CMD='Update_Missing_Asset'` custody-wide,
+which back-fills any `stage_1c_ready_for_backfill` rows on those custodies as
+a byproduct (they share `fk_CustodyID`).
+
+For any custody with `stage_1c_ready_for_backfill` rows but NO 1a/1b tuples
+(pure 1c — mapping already exists but back-fill never ran), invoke
+`asset:assetcustody-fill` in back-fill-only mode for that custody (no new
+mapping insert; only `Update_Missing_Asset`).
+
+Capture:
 
 - `mappings_inserted`: count + list of new `AssetCustody` rows
 - `custody_position_backfilled`: count of `Portfolio.CustodyPosition` rows
-  updated by `Update_Missing_Asset`
+  updated by `Update_Missing_Asset` (across all invocations)
 - `unblocked_pks`: aggregated list of pks that now have their custody
-  identifier resolvable to a canonical Asset code
+  identifier resolvable to a canonical Asset code (from 1a fixes + 1b fixes)
 - `errors`: list
 
 Then, if `unblocked_pks` is non-empty and `dry_run = false`, invoke
@@ -239,41 +311,58 @@ auto-Asset-match validator will promote them PENDING → VALIDATED. Capture:
 
 Capture the merged result into `step4_map_unblock` per the schema.
 
-### 6 — Step 5b: historical prices (per registered asset)
+### 6 — Step 5b: historical prices
 
-For each Asset in `step3_register.br_funds_registered ∪
-step3_register.other_registered`:
+Assemble the price-backfill target set from three sources:
 
-1. Determine the price window: `start_date = MIN(t.Date)` from the Step 1
-   audit rows whose `(Custody, AssetCustody or CustodyIdentifier)` resolved
-   to this Asset; `end_date` = the caller's `end_date`.
-2. Invoke `asset:asset-price-history` with `(Asset, start_date, end_date,
+1. **Newly-registered assets** (`step3_register.br_funds_registered ∪
+   step3_register.other_registered`) — freshly-registered 1a assets. Window
+   per asset: `start_date = MIN(t.Date)` from the Step 1 audit's 1a rows
+   whose identifier resolved to this Asset; `end_date` = the caller's
+   `end_date`.
+2. **Newly-mapped assets** (`stage_1b_ready_for_mapping` post-Step-4
+   success) — already-registered assets that got their per-custody mapping
+   this run. Skip if the asset's price coverage is already complete for the
+   window (probe via re-running the 1d detector for this asset only). Else,
+   same window rule as (1) using the audit's 1b rows for this asset.
+3. **Pure 1d gaps** (`stage_1d_ready_for_prices` from Step 2) — assets
+   registered + mapped in prior runs but with `AssetData.Price` gaps
+   detected by 1d. Window per asset comes directly from the 1d row:
+   `[EarliestTapeDate, today]`.
+
+For each asset in the assembled set:
+
+1. Invoke `asset:asset-price-history` with `(Asset, start_date, end_date,
    dry_run)`. The leaf walks its own 4-source priority chain (MarketData →
-   AssetDataDB.v_Price → `Portfolio.v_CustodyPosition × PriceFactor`) — the
-   CustodyPosition fallback is exactly the "backfill from custody" behavior
-   the user asked for. Do NOT pre-filter sources here; that's the leaf's
-   contract.
-3. Capture per-Asset: `dates_inserted`, `dates_still_missing`, `source_mix`
-   (`{MarketData: n, AssetDataDB: n, CustodyPosition: n}`), `errors`.
+   AssetDataDB.v_Price → `Portfolio.v_CustodyPosition × PriceFactor`). Do
+   NOT pre-filter sources here; that's the leaf's contract.
+2. Capture per-Asset: `source_tag` (`newly_registered` / `newly_mapped` /
+   `preexisting_1d_gap`), `dates_inserted`, `dates_still_missing`,
+   `source_mix` (`{MarketData: n, AssetDataDB: n, CustodyPosition: n}`),
+   `errors`.
 
-Skip this step entirely for assets in `known_by_lookup` — they were already
-registered, so their historical prices are already someone else's problem
-(they were populated when that asset was first onboarded).
+Assets in `known_by_lookup` (Step 2 false-negatives) are already registered
+AND mapped elsewhere — check whether they show up in the re-detected 1d
+alongside sources (1) and (2); include only if they do.
 
 Capture as `step5_price_history` per the schema, keyed by Asset code.
 
 ### 7 — Step 6: verify (read-only)
 
-Re-run `transaction-workday-audit` Check 1a for the same window and
-custody filter. Compare against Step 1:
+Re-execute every sub-detector SQL from `transaction-workday-audit` Check 1
+(1a, 1b, 1c, 1d, and the sidebar) for the same window and custody filter.
+Compare against Step 1:
 
-- `resolved`: tuples in Step 1 that no longer appear.
-- `residual`: tuples that still appear. **Expected residuals** =
-  `ambiguous_assets` (the orchestrator did not register them by design).
-  **Unexpected residuals** = anything else → flag prominently (indicates
-  a leaf write silently failed or the auto-Asset-match didn't fire despite
-  the mapping insert).
-- `regressed`: tuples that didn't exist in Step 1 but appear now (worst
+- `resolved_1a`, `resolved_1b`, `resolved_1c`, `resolved_1d`: tuples /
+  rows / assets that were in Step 1 but no longer appear (per sub-detector).
+- `residual_expected`: rows / tuples that still appear AND are traceable to
+  `step3_register.ambiguous_assets` OR `stage_1b_ready_for_mapping` items
+  the orchestrator flagged with `ResolvedCount > 1` (auto-mapping declined
+  by design).
+- `residual_unexpected`: anything else that still appears → flag prominently
+  (indicates a leaf write silently failed or the auto-Asset-match didn't
+  fire despite the mapping insert).
+- `regressed`: rows that didn't exist in Step 1 but appear now (worst
   case; almost never fires, but a signal that a leaf broke something).
 
 Also count residual `PENDING` with `Asset IS NULL` on the same window as a
@@ -363,17 +452,24 @@ Reply in chat with:
 
 ## When unsure
 
-- **Check 1a returns 0 tuples.** Say so explicitly. Write a "nothing to
-  onboard" report, upload to blob, finalise. This is a valid outcome and
-  the most common one on days when custody loaders behave.
-- **Check 1b returns >0 rows.** This means an `AccountTransaction` row has
-  an `Asset` code that doesn't exist in `Global.Asset` — data corruption,
-  not a routine gap. Do NOT try to fix it. Flag as `ambiguous_assets` and
-  point the analyst at the row.
-- **`asset-lookup` finds the identifier in `Global.Asset` but not in
-  `Portfolio.v_AssetCustody`.** That's `known_by_lookup` — skip register,
-  hand straight to `assetcustody-fill`. This is a mapping-only gap and
-  the most efficient case.
+- **All four sub-detectors (1a/1b/1c/1d) return 0.** Say so explicitly.
+  Write a "nothing to onboard" report, upload to blob, finalise. This is a
+  valid outcome and the most common one on days when custody loaders behave
+  and no price gaps have accumulated.
+- **The sidebar (Asset FK broken) returns > 0 rows.** This means an
+  `AccountTransaction` row has an `Asset` code that doesn't exist in
+  `Global.Asset` — data corruption, not a routine gap. Do NOT try to fix
+  it. Flag as `ambiguous_assets` with `refusal_reason =
+  "asset_fk_broken_corruption"` and point the analyst at the row.
+- **Sub-detector 1b returns tuples with `ResolvedCount > 1`.** The identifier
+  matches more than one `Global.Asset` row (e.g. a CNPJ shared by two
+  registered class codes, an ISIN reused). Do NOT let `assetcustody-fill`
+  auto-pick a target — flag as `ambiguous_assets` and let the analyst
+  choose.
+- **`asset-lookup` finds a 1a identifier in `Global.Asset` but not in
+  `Portfolio.v_AssetCustody`.** That's `known_by_lookup` (audit false-
+  negative caught by asset-lookup's broader probe) — skip register, hand
+  straight to `assetcustody-fill` alongside 1b tuples. Efficient case.
 - **`asset-register` refuses on a non-BR-fund unknown** (no confident
   peer set). Do NOT retry with a looser peer strategy. Log the tuple with
   the leaf's refusal reason and one-sentence guidance for the analyst

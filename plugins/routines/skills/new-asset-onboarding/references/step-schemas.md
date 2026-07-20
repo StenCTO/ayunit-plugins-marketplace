@@ -38,12 +38,16 @@ changes here require a plugin version bump.
 `run_meta.status` rules:
 
 - `FAILED` if any step's `errors` is non-empty, or if `step6_verify.regressed`
-  is non-empty, or if `step6_verify.unexpected_residual` is non-empty.
+  is non-empty, or if `step6_verify.residual_unexpected` is non-empty.
 - `OK_WITH_AMBIGUOUS` if no failures but `step3_register.ambiguous_assets` is
   non-empty (the routine did its job; the residual is by-design human-action).
 - `OK` otherwise (including the "nothing to onboard" case).
 
 ## `step1_detect`
+
+Four sub-detector lists (mirroring `transaction-workday-audit` Check 1's
+sub-detectors 1a / 1b / 1c / 1d) plus a sidebar for the rare Asset-FK-broken
+corruption case.
 
 ```json
 {
@@ -54,7 +58,7 @@ changes here require a plugin version bump.
     "end_date":   "YYYY-MM-DD"
   },
   "custody_filter": [],
-  "check_1a_unmapped_tuples": [
+  "stage_1a_needs_registration": [
     {
       "Custody":            "BTG",
       "AssetCustody":       "<raw>",
@@ -67,13 +71,60 @@ changes here require a plugin version bump.
       "GeneralLedgerDescriptionSample": "<hint at instrument kind>"
     }
   ],
-  "check_1b_asset_not_in_global": [
+  "stage_1b_needs_mapping_only": [
     {
-      "pk":     0,
-      "Asset":  "<orphan-code>",
-      "Custody":"<name>",
-      "Date":   "YYYY-MM-DD",
-      "GeneralLedgerDescription": "<raw>"
+      "Custody":            "BTG",
+      "AssetCustody":       "<raw>",
+      "CustodyIdentifier":  "<raw>",
+      "ResolvedAsset":      "<canonical-code — audit pre-resolved via Cnpj/Isin/BbgCode/… probe>",
+      "ResolvedCount":      1,
+      "FirstSeen":          "YYYY-MM-DD",
+      "LastSeen":           "YYYY-MM-DD",
+      "RowCount":           0,
+      "Accounts":           0,
+      "SamplePk":           0
+    }
+  ],
+  "stage_1c_needs_position_backfill": [
+    {
+      "Custody":       "BTG",
+      "Account":       "<zero-padded>",
+      "AssetR":        "<custody-side-raw-code>",
+      "IsinR":         "<if present>",
+      "AnbimaCodeR":   "<if present>",
+      "FirstSeen":     "YYYY-MM-DD",
+      "LastSeen":      "YYYY-MM-DD",
+      "RowCount":      0,
+      "TotalQuantity": 0.0,
+      "TotalValue":    0.0
+    }
+  ],
+  "stage_1d_needs_price_backfill": [
+    {
+      "Asset":                     "<canonical-code>",
+      "Description":               "<from Global.Asset>",
+      "AssetGroup":                "<Equity|Fund|…>",
+      "Currency":                  "BRL",
+      "Activated":                 1,
+      "EarliestTapeDate":          "YYYY-MM-DD",
+      "LatestTapeDate":            "YYYY-MM-DD",
+      "TapeRowCount":              0,
+      "EarliestPriceDate":         "YYYY-MM-DD",
+      "LatestPriceDate":           "YYYY-MM-DD",
+      "PriceRowCount":             0,
+      "ApproxBusinessDaysExpected": 0,
+      "ApproxGapCount":            0,
+      "tier":                      "full_backfill" | "recent_gap"
+    }
+  ],
+  "asset_fk_broken": [
+    {
+      "Asset":     "<orphan-code>",
+      "Custody":   "<name>",
+      "FirstSeen": "YYYY-MM-DD",
+      "LastSeen":  "YYYY-MM-DD",
+      "RowCount":  0,
+      "SamplePk":  0
     }
   ],
   "pending_pks_at_risk": [ 0 ],
@@ -81,10 +132,19 @@ changes here require a plugin version bump.
 }
 ```
 
-`status = "skipped"` never fires for Step 1 (the audit always runs); reserved
+`pending_pks_at_risk` is the aggregated set of `pk_AccountTransactionID`
+values from rows contributing to `stage_1a_needs_registration` and
+`stage_1b_needs_mapping_only` — needed later for `pending-revalidate` scope
+after Step 4's mapping insert.
+
+`status = "skipped"` never fires for Step 1 (detection always runs); reserved
 for shape symmetry with later steps.
 
 ## `step2_classify`
+
+Only 1a tuples pass through `asset-lookup`. 1b / 1c / 1d rows are pre-classified
+by the audit itself and routed forward without a lookup call. The corruption
+sidebar goes straight to `ambiguous_assets`.
 
 ```json
 {
@@ -119,9 +179,41 @@ for shape symmetry with later steps.
       "SamplePk":           0
     }
   ],
-  "check_1b_recheck": [
+  "stage_1b_ready_for_mapping": [
     {
-      "pk":     0,
+      "Custody":            "BTG",
+      "AssetCustody":       "<raw>",
+      "CustodyIdentifier":  "<raw>",
+      "ResolvedAsset":      "<canonical-code>",
+      "SamplePk":           0
+    }
+  ],
+  "stage_1c_ready_for_backfill": [
+    {
+      "Custody":  "BTG",
+      "Account":  "<zero-padded>",
+      "AssetR":   "<custody-side-raw-code>",
+      "RowCount": 0
+    }
+  ],
+  "stage_1d_ready_for_prices": [
+    {
+      "Asset":            "<canonical-code>",
+      "EarliestTapeDate": "YYYY-MM-DD",
+      "tier":             "full_backfill" | "recent_gap"
+    }
+  ],
+  "ambiguous_1b_multi_resolve": [
+    {
+      "Custody":            "BTG",
+      "AssetCustody":       "<raw>",
+      "CustodyIdentifier":  "<raw>",
+      "ResolvedCount":      2,
+      "reason":             "identifier matches multiple Global.Asset rows — analyst must pick"
+    }
+  ],
+  "asset_fk_broken_flagged": [
+    {
       "Asset":  "<orphan-code>",
       "reason": "Asset code set on trade but no row in Global.Asset — corruption"
     }
@@ -169,9 +261,11 @@ for shape symmetry with later steps.
 }
 ```
 
-`ambiguous_assets` also carries the `check_1b_recheck` corruption cases,
-tagged with `refusal_reason = "check_1b_corruption"` — this way the Azure
-Blob log surfaces every human-action item in one list.
+`ambiguous_assets` also carries `step2_classify.ambiguous_1b_multi_resolve`
+tagged with `refusal_reason = "ambiguous_1b_multi_resolve"`, and
+`step2_classify.asset_fk_broken_flagged` tagged with `refusal_reason =
+"asset_fk_broken_corruption"` — so the Azure Blob log surfaces every
+human-action item in one list regardless of which detector surfaced it.
 
 ## `step4_map_unblock`
 
@@ -199,14 +293,18 @@ Blob log surfaces every human-action item in one list.
 
 ## `step5_price_history`
 
+Assets are tagged by their `source_tag` — where they entered the price-backfill
+set — so the report shows the registered / mapped / gap distribution.
+
 ```json
 {
   "status": "ran" | "skipped" | "failed",
   "skip_reason": null,
   "by_asset": {
     "<Asset-code>": {
-      "window": { "start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD" },
-      "dates_inserted": 0,
+      "source_tag":         "newly_registered" | "newly_mapped" | "preexisting_1d_gap",
+      "window":             { "start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD" },
+      "dates_inserted":     0,
       "dates_still_missing": ["YYYY-MM-DD"],
       "source_mix": {
         "MarketData":      0,
@@ -220,21 +318,42 @@ Blob log surfaces every human-action item in one list.
 }
 ```
 
-Assets in `known_by_lookup` are **not** included in `by_asset` — their price
-history was populated when they were first onboarded (out of this run's
-scope).
+- `newly_registered` — from `step3_register.br_funds_registered ∪
+  step3_register.other_registered`.
+- `newly_mapped` — from `stage_1b_ready_for_mapping` that still shows in the
+  re-detected 1d after Step 4.
+- `preexisting_1d_gap` — from `stage_1d_ready_for_prices` (asset was already
+  registered + mapped, only Price coverage was incomplete).
+
+Assets in `known_by_lookup` are included only if they also appear in the
+re-detected 1d after Step 4; otherwise skipped (their coverage was populated
+by an earlier onboarding).
 
 ## `step6_verify`
 
+Re-execution of all four `transaction-workday-audit` Check 1 sub-detectors
+(1a, 1b, 1c, 1d) plus the corruption sidebar. Each sub-detector's residuals
+are tracked separately so the analyst sees which stage of the pipeline still
+has work.
+
 ```json
 {
-  "resolved":            [ { "Custody": "...", "AssetCustody": "...", "CustodyIdentifier": "..." } ],
-  "residual_expected":   [ { "Custody": "...", "AssetCustody": "...", "CustodyIdentifier": "...", "reason": "ambiguous" } ],
-  "unexpected_residual": [ { "Custody": "...", "AssetCustody": "...", "CustodyIdentifier": "...", "reason": "<hypothesis>" } ],
-  "regressed":           [ { "Custody": "...", "AssetCustody": "...", "CustodyIdentifier": "..." } ],
+  "resolved_1a":           [ { "Custody": "...", "AssetCustody": "...", "CustodyIdentifier": "..." } ],
+  "resolved_1b":           [ { "Custody": "...", "AssetCustody": "...", "CustodyIdentifier": "...", "ResolvedAsset": "..." } ],
+  "resolved_1c":           [ { "Custody": "...", "Account": "...", "AssetR": "..." } ],
+  "resolved_1d":           [ { "Asset": "..." } ],
+  "residual_expected":     [ { "sub_detector": "1a|1b|1c|1d|sidebar", "key": "...", "reason": "ambiguous|multi_resolve|asset_fk_broken|leaf_declined|lock_blocked" } ],
+  "residual_unexpected":   [ { "sub_detector": "1a|1b|1c|1d", "key": "...", "reason": "<hypothesis>" } ],
+  "regressed":             [ { "sub_detector": "1a|1b|1c|1d", "key": "..." } ],
   "residual_pending_null_asset_count": 0
 }
 ```
+
+`residual_expected` covers by-design residuals: `ambiguous_assets` cases the
+orchestrator declined to auto-fix (1a peer-refusal, 1b `ResolvedCount > 1`,
+sidebar corruption), plus 1c/1d rows a leaf declined (`lock_blocked`,
+low-confidence). Anything else is `residual_unexpected` and warrants
+investigation.
 
 ## `blob_upload`
 
@@ -282,7 +401,7 @@ the Human-action one (which always renders).
      run `asset:asset-enrich-from-bbg` first if a Bloomberg ticker is available.
 }}
 
-{{if step6.unexpected_residual, prepend a red section:}}
+{{if step6.residual_unexpected, prepend a red section:}}
 
 ## Unexpected residuals (investigate)
 
@@ -292,27 +411,37 @@ the Human-action one (which always renders).
 
 ---
 
-## Step 1 — Detect (transaction-workday-audit)
+## Step 1 — Detect (audit Check 1 sub-detectors)
 
-| Metric | Count |
-|---|---|
-| Unmapped tuples (Check 1a) | {{step1.check_1a_unmapped_tuples | length}} |
-| Asset-not-in-Global (Check 1b) | {{step1.check_1b_asset_not_in_global | length}} |
-| PENDING pks at risk | {{step1.pending_pks_at_risk | length}} |
-| Errors | {{step1.errors | length}} |
+| Sub-detector | Count | Fix needed |
+|---|---|---|
+| **1a** — Global.Asset missing (needs registration) | {{step1.stage_1a_needs_registration | length}} | register → map → position → prices |
+| **1b** — AssetCustody mapping missing (Global.Asset exists) | {{step1.stage_1b_needs_mapping_only | length}} | map → position → prices |
+| **1c** — CustodyPosition Asset=NULL AssetR=&lt;code&gt; | {{step1.stage_1c_needs_position_backfill | length}} | position back-fill only |
+| **1d** — AssetData.Price backfill gap | {{step1.stage_1d_needs_price_backfill | length}} | price back-fill only |
+| Sidebar — Asset FK broken (corruption) | {{step1.asset_fk_broken | length}} | analyst / master data |
+| PENDING pks at risk (from 1a + 1b) | {{step1.pending_pks_at_risk | length}} | — |
+| Errors | {{step1.errors | length}} | — |
 
-{{if step1.check_1a_unmapped_tuples, list as a table sorted by RowCount DESC}}
+{{if step1.stage_1a_needs_registration, list as a table sorted by RowCount DESC}}
+{{if step1.stage_1b_needs_mapping_only, list as a table showing ResolvedAsset per tuple}}
+{{if step1.stage_1c_needs_position_backfill, list per (Custody, Account, AssetR) with RowCount}}
+{{if step1.stage_1d_needs_price_backfill, list per Asset sorted by ApproxGapCount DESC, showing (EarliestTapeDate, LatestPriceDate, tier)}}
 
 ---
 
-## Step 2 — Classify (asset-lookup)
+## Step 2 — Classify (asset-lookup on 1a only; 1b/1c/1d pre-classified)
 
-| Bucket | Count |
-|---|---|
-| Already registered (known_by_lookup) | {{step2.known_by_lookup | length}} |
-| BR fund CNPJ candidates | {{step2.br_fund_candidate | length}} |
-| Other unknown | {{step2.other_unknown | length}} |
-| Check 1b re-check | {{step2.check_1b_recheck | length}} |
+| Bucket | Count | Origin |
+|---|---|---|
+| Already registered (known_by_lookup) | {{step2.known_by_lookup | length}} | 1a — asset-lookup caught audit false-negative |
+| BR fund CNPJ candidates | {{step2.br_fund_candidate | length}} | 1a — will register via `register-br-funds` |
+| Other unknown | {{step2.other_unknown | length}} | 1a — will register via peer-analogy |
+| Ready for mapping (stage_1b) | {{step2.stage_1b_ready_for_mapping | length}} | 1b — audit already resolved Asset code |
+| Ready for position back-fill (stage_1c) | {{step2.stage_1c_ready_for_backfill | length}} | 1c — mapping done, only Update_Missing_Asset |
+| Ready for prices (stage_1d) | {{step2.stage_1d_ready_for_prices | length}} | 1d — registered + mapped, only prices missing |
+| Ambiguous 1b (multi-resolve) | {{step2.ambiguous_1b_multi_resolve | length}} | 1b — ResolvedCount > 1, analyst must pick |
+| Asset FK broken (flagged) | {{step2.asset_fk_broken_flagged | length}} | sidebar — corruption, analyst investigates |
 
 ---
 
@@ -342,21 +471,23 @@ the Human-action one (which always renders).
 
 ## Step 5 — Historical prices
 
-| Asset | Window | Inserted | Missing | Sources |
-|---|---|---|---|---|
-| {{Asset}} | {{start_date}} → {{end_date}} | {{dates_inserted}} | {{dates_still_missing | length}} | {{source_mix as "MD:n AD:n CP:n"}} |
+| Asset | Source tag | Window | Inserted | Missing | Sources |
+|---|---|---|---|---|---|
+| {{Asset}} | {{source_tag}} | {{start_date}} → {{end_date}} | {{dates_inserted}} | {{dates_still_missing | length}} | {{source_mix as "MD:n AD:n CP:n"}} |
 
 ---
 
-## Step 6 — Verify
+## Step 6 — Verify (re-execution of 1a/1b/1c/1d)
 
-| Metric | Count |
-|---|---|
-| Resolved (present in Step 1, gone now) | {{step6.resolved | length}} |
-| Residual — expected (ambiguous by design) | {{step6.residual_expected | length}} |
-| Residual — unexpected (INVESTIGATE) | {{step6.unexpected_residual | length}} |
-| Regressed (appeared after run) | {{step6.regressed | length}} |
-| Residual PENDING with Asset IS NULL | {{step6.residual_pending_null_asset_count}} |
+| Sub-detector | Resolved | Residual (expected + unexpected) | Regressed |
+|---|---|---|---|
+| 1a | {{step6.resolved_1a | length}} | — | — |
+| 1b | {{step6.resolved_1b | length}} | — | — |
+| 1c | {{step6.resolved_1c | length}} | — | — |
+| 1d | {{step6.resolved_1d | length}} | — | — |
+| **Totals** | — | {{step6.residual_expected | length}} expected · {{step6.residual_unexpected | length}} UNEXPECTED | {{step6.regressed | length}} |
+
+Also: residual PENDING with Asset IS NULL = {{step6.residual_pending_null_asset_count}}.
 
 ---
 

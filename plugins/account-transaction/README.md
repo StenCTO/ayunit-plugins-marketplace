@@ -14,7 +14,7 @@ automatically.
 | Skill | Kind | What it does |
 |---|---|---|
 | `ubs-miami` | Loader (`UBS Miami`) | UBS Online Services *Investment Activity* export (`.xls` all-accounts or per-account `.xlsx`) → trades (BUY/SELL/redemptions) + cash flows + GL/interest. Local parser → MCP `execute_procedure` (canary → confirm → batch). |
-| `transaction-workday-audit` | Audit (read-only, custody-agnostic) | Single entry point for the analyst's routine audit of the recent tape. Ships three checks today: **(1)** assets appearing in AccountTransaction that aren't mapped in `Portfolio.AssetCustody` or registered in `Global.Asset` (hand-off → `asset-register`); **(2)** structural duplicate-trade clusters (same account/custody/asset/date/type/|qty|), bucketed by position-impact severity (hand-off → `duplicate-trade-reconcile`); **(3)** `PENDING` rows whose blockers (Asset / Price / Quantity) have cleared in master data since load, classified from the loader's `SystemCheck` grammar and joined against current master data to prove resolvability (hand-off → `pending-revalidate`). Never writes. |
+| `transaction-workday-audit` | Executing orchestrator (custody-agnostic) | Single entry point for the analyst's workday audit + fix cycle on the recent tape. **Check 1** — four-stage onboarding-pipeline detector (`Global.Asset` missing, `AssetCustody` mapping missing, `CustodyPosition` back-fill needed, `AssetData.Price` back-fill needed) that, if any sub-detector has findings, invokes `routines:new-asset-onboarding` **exactly once** and re-probes per-stage. **Check 2** — six-step sequential fix orchestrator that invokes `compromissada-fix` → `assetrelated-fix` → `pending-revalidate` → `pending-position-repair` → `duplicate-trade-reconcile` → `position-quantity-adjustment` in order, detect / skip-if-empty / invoke / re-probe / pause between each step. Writes only through invoked siblings (each with its own preview/confirm/execute + CheckedDate lock enforcement). The audit itself never calls `execute_procedure` and never moves a `CheckedDate`. |
 | `pending-revalidate` | Fix (custody-agnostic) | Re-invokes `Portfolio.AccountTransaction_Update @CMD='U'` on `PENDING` rows whose prerequisites are now available, so the procedure's built-in auto-validators (auto-match `Asset`, auto-fill `Price`, auto-fill `Quantity`) re-fire and promote the row to `UPDATED`. Takes a pk list (audit hand-off shape) or a scoped filter. SELECT-first-merge, `AccountCurrency`/`AccountFx` dropped, absolute values, `RawTransaction` preserved, lock-gated against `CheckedDate`, atomic `execute_batch` dry-run → commit → verify. |
 | `pending-position-repair` | Fix (custody-agnostic) | Repairs `PENDING` rows whose `RawTransaction` carries no valid asset identifier by inferring the intended `(Asset, direction)` from the `AccountPosition ↔ CustodyPosition` delta on the same account/date. Ranks candidate tuples with a confidence score; on HIGH confidence with a clean reconciliation, issues `@CMD='U'` (SELECT-first-merge, lock-gated, `AgentCheck [PR-POS]` tag). MED/LOW confidence → surfaces ranked candidates for analyst review, writes nothing. Sibling of `pending-revalidate`. |
 | `duplicate-trade-reconcile` | Fix (custody-agnostic) | Reconciles candidate duplicate trades against the day-over-day quantity delta in `Portfolio.CustodyPosition` and deletes the duplicates it can prove with high confidence via `@CMD='D'` (dry-run first). Anything it can't prove is reported for human review. |
@@ -41,17 +41,20 @@ automatically.
    lock-gated against `CheckedDate`. Unresolved assets and review items land `PENDING` (tracked,
    not dropped); only lock-blocked / unknown-account / zero-amount rows are reported, not written.
 
-**Workday hygiene path** (`transaction-workday-audit` → specialist fix skill):
+**Workday hygiene path** (`transaction-workday-audit` = the executing orchestrator):
 
-1. Analyst runs `transaction-workday-audit` (default: last 7 days on `Date`, book-wide). The audit
-   is read-only — safe to run any time.
-2. Each check reports a bucket with a paste-able pk list and names the sibling skill that owns the
-   fix: unregistered assets → `asset-register` (external), structural duplicate clusters →
-   `duplicate-trade-reconcile`, resolvable-now `PENDING` → `pending-revalidate`,
-   `AssetRelated`-missing income → `assetrelated-fix`.
-3. Analyst hands the pk list to the specialist. Each specialist owns its own write cycle
-   (SELECT-first-merge, lock-gate, atomic batch, verify).
-4. Re-run the audit — the targeted bucket should be empty.
+1. Analyst runs `transaction-workday-audit` (default: last 7 days on `Date`, book-wide).
+2. **Check 1** detects the four onboarding-pipeline gaps (`Global.Asset` missing, `AssetCustody`
+   mapping missing, `CustodyPosition` back-fill needed, `AssetData.Price` back-fill needed) and,
+   if any gap has findings, invokes `routines:new-asset-onboarding` **exactly once** to execute
+   the four-stage fix. Re-probes each sub-detector and reports the per-stage delta.
+3. **Check 2** invokes six fix sibling skills in a fixed order —
+   `compromissada-fix` → `assetrelated-fix` → `pending-revalidate` → `pending-position-repair` →
+   `duplicate-trade-reconcile` → `position-quantity-adjustment` — with detect / skip-if-empty /
+   invoke / re-probe / pause between each step.
+4. Every write goes through the invoked sibling's own preview/confirm/execute cycle. The audit
+   itself never writes directly and never moves a `CheckedDate` — each sibling enforces the lock
+   on its own writes; `lock-blocked` rows are surfaced for the analyst's decision.
 
 Just say something like *"load this UBS Miami export into AccountTransaction"*, *"audit the tape
 for last week"*, or *"re-validate PENDING pks 91181, 91182, 91183, 91184"* — the right skill
@@ -80,8 +83,10 @@ need to change them when adding a loader.
   never write on/before an active `CheckedDate`, always pass absolute `Quantity`/`Price`/`Value`
   (the proc signs them), never pass `AccountCurrency`/`AccountFx`, always preserve `RawTransaction`
   on updates, always set `AgentCheck` on non-loader writes.
-- **Audit vs fix separation.** `transaction-workday-audit` is read-only and hands off. Every fix
-  skill is scoped, lock-gated, atomic, and verified.
+- **Audit orchestrates, siblings write.** `transaction-workday-audit` is the workday driver:
+  Check 1 delegates to `routines:new-asset-onboarding`, Check 2 chains the six fix siblings in
+  order. The audit itself never calls `execute_procedure` / `execute_batch(dry_run=false)` and
+  never moves a `CheckedDate` — every write and every lock check lives inside the invoked sibling.
 
 ---
 _Sten Capital_

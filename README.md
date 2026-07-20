@@ -167,9 +167,9 @@ Then add it to `.claude-plugin/marketplace.json`:
 
 | Plugin | Version | Skills |
 |---|---|---|
-| `account-transaction` | 0.11.1 | `ubs-miami`, `transaction-workday-audit`, `pending-revalidate`, `pending-position-repair`, `duplicate-trade-reconcile`, `assetrelated-fix`, `compromissada-fix`, `position-quantity-adjustment` |
+| `account-transaction` | 0.12.0 | `ubs-miami`, `transaction-workday-audit`, `pending-revalidate`, `pending-position-repair`, `duplicate-trade-reconcile`, `assetrelated-fix`, `compromissada-fix`, `position-quantity-adjustment` |
 | `position` | 0.1.0 | `inception-position` |
 | `asset` | 0.5.0 | `asset-register`, `asset-lookup`, `asset-price-history`, `assetcustody-fill`, `register-br-funds` |
 | `anbima-data` | 0.3.0 | `anbima-funds-data`, `anbima-funds-historical-data`, `anbima-funds-explorer` |
-| `routines` | 0.3.0 | `new-asset-onboarding`, `daily-btg-onshore-routine`, `daily-btg-offshore-routine` |
+| `routines` | 0.4.0 | `new-asset-onboarding`, `daily-btg-onshore-routine`, `daily-btg-offshore-routine` |
 | `marketplace-tools` | 0.2.0 | `skill-review`, `artifact-review` (+ `/skill-new` command) |
