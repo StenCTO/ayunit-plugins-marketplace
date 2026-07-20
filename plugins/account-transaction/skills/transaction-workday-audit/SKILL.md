@@ -236,7 +236,7 @@ SELECT
     t.Custody, t.AssetCustody, t.CustodyIdentifier,
     MIN(t.Date)                     AS FirstSeen,
     MAX(t.Date)                     AS LastSeen,
-    COUNT(*)                        AS RowCount,
+    COUNT(*)                        AS [RowCount],
     COUNT(DISTINCT t.ClientAccount) AS Accounts,
     MIN(t.pk_AccountTransactionID)  AS SamplePk,
     MAX(t.GeneralLedgerDescription) AS GeneralLedgerDescriptionSample
@@ -319,7 +319,7 @@ SELECT
     r.ResolvedAsset, r.ResolvedCount,
     MIN(t.Date)                     AS FirstSeen,
     MAX(t.Date)                     AS LastSeen,
-    COUNT(*)                        AS RowCount,
+    COUNT(*)                        AS [RowCount],
     COUNT(DISTINCT t.ClientAccount) AS Accounts,
     MIN(t.pk_AccountTransactionID)  AS SamplePk
 FROM Portfolio.v_AccountTransaction t
@@ -382,7 +382,7 @@ SELECT
     cp.AssetR, cp.IsinR, cp.AnbimaCodeR,
     MIN(cp.Date)     AS FirstSeen,
     MAX(cp.Date)     AS LastSeen,
-    COUNT(*)         AS RowCount,
+    COUNT(*)         AS [RowCount],
     SUM(cp.Quantity) AS TotalQuantity,
     SUM(cp.Value)    AS TotalValue
 FROM Portfolio.v_CustodyPosition cp
@@ -442,9 +442,9 @@ tape_span AS (
 ),
 covered AS (
     SELECT p.Asset,
-           MIN(p.Date) AS EarliestPriceDate,
-           MAX(p.Date) AS LatestPriceDate,
-           COUNT(*)    AS PriceRowCount
+           MIN(p.Date)           AS EarliestPriceDate,
+           MAX(p.Date)           AS LatestPriceDate,
+           COUNT(DISTINCT p.Date) AS PriceDatesCovered   -- distinct dates, not rows
     FROM AssetData.v_Price p
     JOIN tape_span ts
       ON ts.Asset = p.Asset
@@ -457,15 +457,20 @@ SELECT
     a.Description, a.AssetGroup, a.Currency, a.Activated,
     ts.EarliestTapeDate, ts.LatestTapeDate, ts.TapeRowCount,
     c.EarliestPriceDate, c.LatestPriceDate,
-    ISNULL(c.PriceRowCount, 0) AS PriceRowCount,
+    ISNULL(c.PriceDatesCovered, 0) AS PriceDatesCovered,
     -- approx business days in [EarliestTapeDate, today]: weekends excluded, BR holidays NOT
     (DATEDIFF(day,  ts.EarliestTapeDate, CAST(GETDATE() AS date)) + 1
      - 2 * DATEDIFF(week, ts.EarliestTapeDate, CAST(GETDATE() AS date))) AS ApproxBusinessDaysExpected,
-    ((DATEDIFF(day,  ts.EarliestTapeDate, CAST(GETDATE() AS date)) + 1
-      - 2 * DATEDIFF(week, ts.EarliestTapeDate, CAST(GETDATE() AS date)))
-      - ISNULL(c.PriceRowCount, 0)) AS ApproxGapCount,
+    -- clamped: negatives were an artifact of multi-source dates being counted with COUNT(*)
+    CASE WHEN ((DATEDIFF(day,  ts.EarliestTapeDate, CAST(GETDATE() AS date)) + 1
+                - 2 * DATEDIFF(week, ts.EarliestTapeDate, CAST(GETDATE() AS date)))
+               - ISNULL(c.PriceDatesCovered, 0)) < 0 THEN 0
+         ELSE ((DATEDIFF(day,  ts.EarliestTapeDate, CAST(GETDATE() AS date)) + 1
+                - 2 * DATEDIFF(week, ts.EarliestTapeDate, CAST(GETDATE() AS date)))
+               - ISNULL(c.PriceDatesCovered, 0))
+    END AS ApproxGapCount,
     CASE
-        WHEN ISNULL(c.PriceRowCount, 0) = 0                                     THEN 'full_backfill'
+        WHEN ISNULL(c.PriceDatesCovered, 0) = 0                                 THEN 'full_backfill'
         WHEN c.EarliestPriceDate > ts.EarliestTapeDate                          THEN 'full_backfill'
         WHEN c.LatestPriceDate   < DATEADD(day, -3, CAST(GETDATE() AS date))    THEN 'recent_gap'
         ELSE                                                                         'other'
@@ -482,6 +487,9 @@ ORDER BY ApproxGapCount DESC, ts.Asset;
 > `ApproxGapCount` slightly overstates the true gap. It's a "which assets
 > need backfill first" ranking, not an authoritative missing-date list. The
 > authoritative source-priority backfill lives in `asset:asset-price-history`.
+> `PriceDatesCovered` uses `COUNT(DISTINCT p.Date)` so it isn't inflated by
+> assets carrying multiple price rows per date (e.g. two sources on the same
+> day); `ApproxGapCount` is clamped at 0 for the same reason.
 
 **Report.** One row per asset. Sort by `ApproxGapCount` desc. Two tiers so
 the analyst knows what's a full backfill vs a tail-only patch:
@@ -512,7 +520,7 @@ master data and check for a recent hand-edit of that pk.
 SELECT DISTINCT
     t.Asset, t.Custody,
     MIN(t.Date) AS FirstSeen, MAX(t.Date) AS LastSeen,
-    COUNT(*)    AS RowCount,
+    COUNT(*)    AS [RowCount],
     MIN(t.pk_AccountTransactionID) AS SamplePk
 FROM Portfolio.v_AccountTransaction t
 LEFT JOIN Global.v_Asset a ON a.Asset = t.Asset
@@ -811,7 +819,7 @@ WITH clusters AS (
     SELECT
         t.ClientAccount, t.Custody, t.Asset, t.TransactionType, t.Date,
         ABS(t.Quantity) AS AbsQty,
-        COUNT(*)                          AS RowCount,
+        COUNT(*)                          AS [RowCount],
         MIN(t.Value)                      AS MinValue,
         MAX(t.Value)                      AS MaxValue,
         SUM(CASE WHEN t.Status IN ('VALIDATED','UPDATED') THEN 1 ELSE 0 END) AS ValidatedCount,
@@ -901,24 +909,50 @@ ours AS (
     WHERE ap.Date >= DATEADD(day, -7, CAST(GETDATE() AS date))      -- <period>
     GROUP BY ap.Account, ap.Custody, ap.Date, ap.Asset
 )
+deltas AS (
+    SELECT
+        ISNULL(c.Account, o.Account) AS Account,
+        ISNULL(c.Custody, o.Custody) AS Custody,
+        ISNULL(c.Date,    o.Date)    AS Date,
+        ISNULL(c.Asset,   o.Asset)   AS Asset,
+        ISNULL(c.QtyCustody, 0) - ISNULL(o.QtyOurs, 0) AS Delta
+    FROM cust c
+    FULL OUTER JOIN ours o
+                 ON o.Account = c.Account AND o.Custody = c.Custody
+                AND o.Date    = c.Date    AND o.Asset   = c.Asset
+    WHERE ABS(ISNULL(c.QtyCustody, 0) - ISNULL(o.QtyOurs, 0)) > 0
+)
 SELECT
-    ISNULL(c.Account, o.Account) AS Account,
-    ISNULL(c.Custody, o.Custody) AS Custody,
-    ISNULL(c.Date,    o.Date)    AS Date,
-    ISNULL(c.Asset,   o.Asset)   AS Asset,
-    ISNULL(c.QtyCustody, 0)      AS QtyCustody,
-    ISNULL(o.QtyOurs,    0)      AS QtyOurs,
-    ISNULL(c.QtyCustody, 0) - ISNULL(o.QtyOurs, 0) AS Delta,
-    CASE WHEN a.AssetGroup = 'Currency' THEN 'cash' ELSE 'non-cash' END AS Kind
-FROM cust c
-FULL OUTER JOIN ours o
-             ON o.Account = c.Account AND o.Custody = c.Custody
-            AND o.Date    = c.Date    AND o.Asset   = c.Asset
-LEFT JOIN Global.v_Asset a
-       ON a.Asset = ISNULL(c.Asset, o.Asset)
-WHERE ABS(ISNULL(c.QtyCustody, 0) - ISNULL(o.QtyOurs, 0)) > 0
-ORDER BY Custody, Account, Date DESC, Asset;
+    d.Account, d.Custody, d.Asset,
+    CASE
+        WHEN d.Asset IN (SELECT Currency FROM Global.v_Currency) THEN 'cash'
+        WHEN a.AssetGroup = 'Cash'                                THEN 'cash'
+        ELSE                                                           'non-cash'
+    END                            AS Kind,
+    COUNT(*)                       AS DateCount,
+    MIN(d.Delta)                   AS MinDelta,
+    MAX(d.Delta)                   AS MaxDelta,
+    AVG(ABS(d.Delta))              AS AvgAbsDelta,
+    MAX(ABS(d.Delta))              AS MaxAbsDelta
+FROM deltas d
+LEFT JOIN Global.v_Asset a ON a.Asset = d.Asset
+GROUP BY d.Account, d.Custody, d.Asset, a.AssetGroup
+ORDER BY MaxAbsDelta DESC;
 ```
+
+> **Detector is aggregated per `(Account, Custody, Asset)`** so the audit
+> report stays readable on accounts with long histories (a raw per-`(Date,
+> Asset)` dump on a 4-month audit can exceed the MCP's output cap). The
+> sibling `position-quantity-adjustment` re-executes the underlying per-date
+> query on the scope you hand it — that's where the tolerance filter and
+> the per-row fix live.
+
+> **`Kind` classification** uses `Global.v_Currency` as the source of truth
+> for cash assets (`BRL`, `USD`, `EUR`, `GBP`, `CHF`, …) with a fallback to
+> `Global.v_Asset.AssetGroup = 'Cash'`. Do NOT use `AssetGroup = 'Currency'`
+> — that value does not exist in production; the AssetGroup for cash is
+> literally `'Cash'`, and the cleanest classifier is the currency-code
+> membership check.
 
 **Invocation.** `Skill(account-transaction:position-quantity-adjustment)`
 with the scoped account list + date window. The sibling runs its own
@@ -929,7 +963,9 @@ tolerance check and inserts the right shape per asset kind
 
 **Re-probe.** Same query. Residuals split into:
 - **Above tolerance** — real missing trade the previous five steps didn't
-  catch. Analyst review.
+  catch. Analyst review (the audit report's `MaxAbsDelta` per asset is the
+  fastest way to spot these — anything orders of magnitude above the
+  sibling's tolerance is a structural mismatch, not dust).
 - **`lock-blocked`** — the sibling declined because the target date is
   on/before the account's active `CheckedDate`. Analyst decision on whether
   to move the lock (out of scope for this skill).

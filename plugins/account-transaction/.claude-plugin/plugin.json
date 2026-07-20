@@ -1,6 +1,6 @@
 {
   "name": "account-transaction",
-  "version": "0.12.0",
+  "version": "0.12.1",
   "description": "Portfolio.AccountTransaction tools on the ayunit MCP. UBS Miami activity loader (file → validated trades + cash/GL, live asset/account/lock resolution). Custody-agnostic audit + fix suite: transaction-workday-audit (executing orchestrator — Check 1 detects the 4 onboarding-pipeline gaps and invokes routines:new-asset-onboarding once; Check 2 chains 6 fix skills in a fixed order: compromissada-fix → assetrelated-fix → pending-revalidate → pending-position-repair → duplicate-trade-reconcile → position-quantity-adjustment, re-probing between steps), pending-revalidate (re-fires loader validators on PENDING rows whose blockers cleared), pending-position-repair (infers (Asset, direction) for identifier-less PENDINGs from position deltas), duplicate-trade-reconcile (de-dup vs CustodyPosition), assetrelated-fix (fills AssetRelated on income, rescues PENDING), compromissada-fix (XP repo normalisation), position-quantity-adjustment (fractional dust absorber). Every write goes through a sibling's own preview/confirm/execute + CheckedDate lock enforcement — the audit never writes directly and never moves a CheckedDate.",
   "author": {
     "name": "Sten Capital"

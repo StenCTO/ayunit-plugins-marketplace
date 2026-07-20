@@ -1,6 +1,6 @@
 ---
 name: new-asset-onboarding
-description: "Use when the user wants to sweep recently-inserted Portfolio.AccountTransaction rows across ALL custodies for assets not yet in Global.Asset or not yet mapped in Portfolio.AssetCustody, and onboard them end-to-end — register the security in Global.Asset, add the per-custody translation row, bulk-backfill Portfolio.CustodyPosition, unblock PENDING trades, and backfill historical prices in AssetData.Price. This is an **orchestrator skill** (meta-skill): it does NOT write to the DB directly; it re-reads the four sub-detector SQL queries from account-transaction:transaction-workday-audit Check 1 (1a needs-registration / 1b needs-mapping-only / 1c needs-position-backfill / 1d needs-price-backfill) as its own detection phase — per the no-loop reciprocity convention, it does NOT invoke that audit skill via the Skill tool — then chains the leaf skills asset:asset-lookup (safety pre-check on 1a tuples), asset:register-br-funds + asset:asset-register (registration paths), asset:assetcustody-fill (mapping + CustodyPosition backfill via Update_Missing_Asset), account-transaction:pending-revalidate (promote unblocked PENDINGs), and asset:asset-price-history (price backfill). Runs autonomously — for Brazilian fund CNPJs the register-br-funds → asset-register chain; for other kinds (equities, options, bonds, offshore funds, FIIs, treasuries) invokes asset-register with peer-analogy classification (copies FK conventions — Issuer, AssetClass, Product, Benchmark, Source, TaxRegime — from existing assets of the same SecurityType). Ambiguous cases the orchestrator cannot safely classify are logged, not guessed. Reports go to disk AND are uploaded to Azure Blob via mcp__ayunit__upload_blob_file. Designed to run BEFORE the daily custody routines so they find zero unmapped assets. Fires on prompts like 'onboard new assets from this week', 'register any unknown assets in the last 3 days', 'sweep unmapped assets', 'run the new-asset onboarding routine', 'roda o new-asset-onboarding para os últimos 3 dias', 'cadastra os ativos novos que apareceram nos trades recentes'."
+description: "Use when the user wants to sweep recently-inserted Portfolio.AccountTransaction rows across ALL custodies for assets not yet in Global.Asset or not yet mapped in Portfolio.AssetCustody, and onboard them end-to-end — register the security in Global.Asset, add the per-custody translation row, bulk-backfill Portfolio.CustodyPosition, unblock PENDING trades, and backfill historical prices in AssetData.Price. This is an **orchestrator skill** (meta-skill): it does NOT write to the DB directly; it re-reads the four sub-detector SQL queries from account-transaction:transaction-workday-audit Check 1 (1a needs-registration / 1b needs-mapping-only / 1c needs-position-backfill / 1d needs-price-backfill) as its own detection phase — per the no-loop reciprocity convention, it does NOT invoke that audit skill via the Skill tool — then chains the leaf skills asset:asset-lookup (safety pre-check on 1a tuples), asset:register-br-funds + asset:asset-register (registration paths), asset:assetcustody-fill (mapping + CustodyPosition backfill via Update_Missing_Asset), account-transaction:pending-revalidate (promote unblocked PENDINGs), and asset:asset-price-history (price backfill). Runs autonomously — for Brazilian fund CNPJs the register-br-funds → asset-register chain; for other kinds (equities, options, bonds, offshore funds, FIIs, treasuries) invokes asset-register with peer-analogy classification (copies FK conventions — Issuer, AssetClass, Product, Benchmark, Source, TaxRegime — from existing assets of the same SecurityType). Ambiguous cases the orchestrator cannot safely classify are logged, not guessed. Reports go to disk AND are uploaded to Azure Blob via mcp__ayunit__upload_blob_file. Designed to run BEFORE the daily custody routines so they find zero unmapped assets. Supports optional per-account scoping via `account_filter` (ad-hoc mode: applies to every detector query, skips the daily state lock, writes report under `reports/ad-hoc/`) so the audit's Check 1 executing form can invoke it for a single account's gaps without a fleet-wide sweep. Fires on prompts like 'onboard new assets from this week', 'register any unknown assets in the last 3 days', 'sweep unmapped assets', 'run the new-asset onboarding routine', 'roda o new-asset-onboarding para os últimos 3 dias', 'cadastra os ativos novos que apareceram nos trades recentes', 'roda o onboarding para a conta X'."
 ---
 
 # `new-asset-onboarding` — sweep, register, map, backfill
@@ -94,14 +94,16 @@ CLAUDE.md).
 |---|---|---|
 | `window_days` | `3` | Sweep back N days from `end_date`. Any int ≥ 1. |
 | `end_date` | `today` (server date) | Explicit end-date is honored **verbatim**. Do NOT silently extend to yesterday / last business day — the caller's date scopes both the audit query and the `asset-price-history` window. |
-| `custody_filter` | `[]` (= ALL custodies) | Optional list of custody names (`"BTG"`, `"XP"`, `"UBS Miami"`, `"JPM"`, `"MS"`, …). Empty = all. Passed through to `transaction-workday-audit`. |
+| `custody_filter` | `[]` (= ALL custodies) | Optional list of custody names (`"BTG"`, `"XP"`, `"UBS Miami"`, `"JPM"`, `"MS"`, …). Empty = all. Applied to every detector query as `AND t.Custody IN (<custody_filter>)`. |
+| `account_filter` | `[]` (= ALL accounts within the custody scope) | Optional list of `ClientAccount` codes (zero-padded per the custody convention — `"005707901"` on BTG, `"94317"` on XP onshore, etc.). Empty = all. Non-empty **switches the routine to ad-hoc mode**: applied to every detector query as `AND t.ClientAccount IN (<account_filter>)`, `AND cp.Account IN (<account_filter>)` on 1c, and — because the semantics of an ad-hoc surgical run differ from a fleet-wide daily sweep — the routine **skips the state lock** (no idempotency file, no short-circuit on today's lock) and writes the report under `reports/ad-hoc/`. Meant for the "audit surfaced N gaps on account X, fix them" workflow initiated from `transaction-workday-audit` Check 1's executing invocation. |
 | `dry_run` | `false` | `true` → every leaf skill is also dry-run / read-only; no `AssetCustody` INSERTs, no `Global.Asset` INSERTs, no `AssetData.Price` INSERTs, no `pending-revalidate` writes; no state lock; report written under `reports/dry-run/`. |
-| `force` | `false` | `true` → ignore today's state lock and run anyway. Use only on a confirmed crash mid-way. |
+| `force` | `false` | `true` → ignore today's state lock and run anyway. Use only on a confirmed crash mid-way. Ignored when `account_filter` is non-empty (ad-hoc mode has no lock to bypass). |
 
-**Echo the resolved `(window_days, end_date, custody_filter, dry_run,
-force)` at the start of every reply.** If `dry_run = true`, prefix every
-status line with `[DRY-RUN]`. Reply in the analyst's language (PT or EN);
-JSON field names always English.
+**Echo the resolved `(window_days, end_date, custody_filter, account_filter,
+dry_run, force)` at the start of every reply.** If `dry_run = true`, prefix
+every status line with `[DRY-RUN]`; if `account_filter` is non-empty, prefix
+every status line with `[AD-HOC]` and include the account list. Reply in
+the analyst's language (PT or EN); JSON field names always English.
 
 ## State / idempotency
 
@@ -121,13 +123,21 @@ Subfolders: `state/`, `reports/`. Files:
 
 Before doing anything:
 
-- If today's lock exists **and** `force = false`: short-circuit. Read the
-  previous report and reply *"Already ran new-asset-onboarding for
-  `<end_date>` — here's the report"* followed by the **Human action
-  required** section from that report. **Do not** invoke any leaf skill.
+- **Ad-hoc mode** (`account_filter` non-empty): skip the state lock entirely
+  (no read, no short-circuit, no write); write the report under
+  `reports/ad-hoc/<end_date>_<account_list>_new_asset_onboarding.{json,md}`
+  where `<account_list>` is the joined list (e.g. `005707901` or
+  `005707901+94317`). Multiple ad-hoc runs per day for the same account list
+  are allowed — the report filename disambiguates.
+- If today's lock exists **and** `force = false` **and** ad-hoc mode is off:
+  short-circuit. Read the previous report and reply *"Already ran
+  new-asset-onboarding for `<end_date>` — here's the report"* followed by the
+  **Human action required** section from that report. **Do not** invoke any
+  leaf skill.
 - If `dry_run = true`, never read or write the state lock; write reports
   under `reports/dry-run/`.
-- The lock is written only at the end of a successful real run (§7).
+- The lock is written only at the end of a successful **fleet-wide** real
+  run (§7). Ad-hoc runs never write a lock.
 
 ## Reference resources (read on demand)
 
@@ -177,6 +187,12 @@ Execute the four sub-detector queries documented in
 - Period: `Date >= DATEADD(day, -<window_days>, '<end_date>') AND Date <= '<end_date>'`
 - Custody filter (optional): apply `AND t.Custody IN (<custody_filter>)`
   when `custody_filter` is non-empty.
+- Account filter (optional, ad-hoc mode): when `account_filter` is non-empty,
+  apply `AND t.ClientAccount IN (<account_filter>)` to detectors 1a / 1b / 1d
+  and `AND cp.Account IN (<account_filter>)` to detector 1c (which reads
+  `Portfolio.v_CustodyPosition`). The audit's Check 1c is already scoped to
+  the audited `(Account, Custody)` pairs on the tape, so the same filter
+  applies naturally.
 
 The four detectors and what each surfaces:
 
@@ -185,7 +201,7 @@ The four detectors and what each surfaces:
 | **1a** — `Global.Asset` missing (identifier resolves nowhere) | Tuples `{Custody, AssetCustody, CustodyIdentifier, FirstSeen, LastSeen, RowCount, Accounts, SamplePk}` where the tape's `Asset IS NULL` and NO `Global.v_Asset` row matches on any identifier column | Needs full four stages: register → map → position back-fill → price back-fill. |
 | **1b** — `Portfolio.AssetCustody` mapping missing (Global.Asset EXISTS) | Same tuple shape as 1a **plus** `{ResolvedAsset, ResolvedCount}` — the audit has already resolved which `Global.Asset` code the identifier points to (via `Cnpj`/`Isin`/`BbgCode`/etc. probe) | Needs three stages: map → position back-fill → price back-fill. **Skips** register — Global.Asset row already exists. Ambiguity guard: `ResolvedCount > 1` = multiple candidates → do NOT auto-map, flag for analyst. |
 | **1c** — `Portfolio.CustodyPosition` still `Asset=NULL AssetR=<code>` on audited (Account, Custody, period) scope | `{Custody, Account, AssetR, IsinR, AnbimaCodeR, FirstSeen, LastSeen, RowCount, TotalQuantity, TotalValue}` — rows the loader ingested before the mapping existed and never retroactively resolved | Needs position back-fill only (`assetcustody-fill`'s `CustodyPosition_Update @CMD='Update_Missing_Asset'` phase). Often overlaps with 1b — the same `assetcustody-fill` invocation clears both. |
-| **1d** — `AssetData.Price` backfill gap from earliest trade date to today | Per-asset `{Asset, Description, AssetGroup, Currency, EarliestTapeDate, LatestTapeDate, EarliestPriceDate, LatestPriceDate, PriceRowCount, ApproxBusinessDaysExpected, ApproxGapCount}` for registered+mapped assets with gaps | Needs price back-fill only (`asset-price-history` on `[EarliestTapeDate, today]` per asset). |
+| **1d** — `AssetData.Price` backfill gap from earliest trade date to today | Per-asset `{Asset, Description, AssetGroup, Currency, EarliestTapeDate, LatestTapeDate, EarliestPriceDate, LatestPriceDate, PriceDatesCovered, ApproxBusinessDaysExpected, ApproxGapCount, tier}` for registered+mapped assets with gaps (`PriceDatesCovered` uses `COUNT(DISTINCT p.Date)` so multi-source assets aren't inflated; `ApproxGapCount` is clamped at 0) | Needs price back-fill only (`asset-price-history` on `[EarliestTapeDate, today]` per asset). |
 | Sidebar — Asset FK broken (rare corruption) | `{Asset, Custody, FirstSeen, LastSeen, RowCount, SamplePk}` — tape rows with a non-null `Asset` code that doesn't exist in `Global.v_Asset` | Not a routine gap; flag for analyst (data corruption or a hand-deleted row). |
 
 Capture the result as JSON matching `step1_detect` in
