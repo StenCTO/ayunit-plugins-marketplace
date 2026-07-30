@@ -72,7 +72,8 @@ list. **Default scope:** `TransactionType = 'GENERAL LEDGER RECEIPT'`,
 
 | Resource | Read when… |
 |---|---|
-| [`ayunit://docs/transaction/fixes`](ayunit://docs/transaction/fixes) | **First.** Recipes **R3** and **R7** are the exact AssetRelated-link fix (R7 = the description-driven, account-confirmed link this skill automates); **R1** = completing a stuck `PENDING`. Plus the universal write guardrails (SELECT-first-merge, drop `AccountCurrency`/`AccountFx`, absolute values, `AgentCheck`). |
+| [`references/write-invariants.md`](../../references/write-invariants.md) | **First — universal write invariants shared by every AccountTransaction leaf.** SELECT-first-merge, drop `AccountCurrency`/`AccountFx`, preserve `RawTransaction`, absolute values, lock contract, `AgentCheck`. Edit there first to prevent drift between skills. |
+| [`ayunit://docs/transaction/fixes`](ayunit://docs/transaction/fixes) | Recipes **R3** and **R7** are the exact AssetRelated-link fix (R7 = the description-driven, account-confirmed link this skill automates); **R1** = completing a stuck `PENDING`. |
 | [`ayunit://docs/checkeddate/usage`](ayunit://docs/checkeddate/usage) | **Before any write.** The lock contract: the proc rejects a write when an `Activated=1` `v_CheckedDate` exists for `(Account, Custody)` and the row's `Date` **or** `SettlementDate` ≤ the lock date. |
 | [`ayunit://docs/transaction/types`](ayunit://docs/transaction/types) · [`procedure`](ayunit://docs/transaction/procedure) | `GENERAL LEDGER RECEIPT` sign rules (`Asset = Currency`, `AssetRelated` = originating security; Quantity/Price/Value all +), the `Status` lifecycle, and `AccountTransaction_Update` params. |
 | [`ayunit://docs/portfolio-creator/pipeline`](ayunit://docs/portfolio-creator/pipeline) | Why an unattributed/`PENDING` receipt drops out of attribution: only `VALIDATED`/`UPDATED` rows with a resolved asset reach `AccountPosition`. |

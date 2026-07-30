@@ -6,8 +6,9 @@ as `SELL` with `Status='PENDING'` because they violate its standard
 sign/price assumptions (`Value = 0` but `ValueGross > 0`, `Quantity < 0` on a
 `Value = 0` trade). Manual promotion via a known recipe.
 
-Recipe originally documented in the project's root `CLAUDE.md §6`. Mirrored
-here so the orchestrator's reference library is self-contained.
+Recipe cross-referenced against [`ayunit://docs/transaction/fixes`](ayunit://docs/transaction/fixes)
+(R2 in the doc library). This file is the orchestrator's local, self-contained
+copy — the one that ships with the plugin.
 
 ## Detection
 

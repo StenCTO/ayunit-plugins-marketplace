@@ -12,8 +12,10 @@ retroactively re-process** the tape when the prerequisite lands later; those
 rows stay `PENDING` until something re-triggers `Portfolio.AccountTransaction_Update`
 on them.
 
-The procedure has built-in auto-validators (CLAUDE.md §8, verified against
-`get_procedure_detail`):
+The procedure has built-in auto-validators (see
+[`references/write-invariants.md`](../../references/write-invariants.md#auto-validators-the-procedure-runs-on-i--u-for-asset-trades)
+and [`ayunit://docs/transaction/procedure`](ayunit://docs/transaction/procedure),
+verified against `get_procedure_detail`):
 
 1. Auto-match `Asset` from `AssetCustody` / `CustodyIdentifier` if `Asset` empty.
 2. Auto-fill `Price` from `AssetData.v_Price` when `Price`, `Value` and
@@ -50,7 +52,8 @@ Echo the resolved scope + bucket restriction at the start of every report.
 
 | Resource | Read when… |
 |---|---|
-| [`ayunit://docs/transaction/fixes`](ayunit://docs/transaction/fixes) | **First.** Recipe **R1** is the stuck-PENDING completion pattern; universal write guardrails (SELECT-first-merge, drop `AccountCurrency` / `AccountFx`, absolute values, preserve `RawTransaction`, `AgentCheck`). |
+| [`references/write-invariants.md`](../../references/write-invariants.md) | **First — universal write invariants shared by every AccountTransaction leaf.** SELECT-first-merge, drop `AccountCurrency`/`AccountFx`, preserve `RawTransaction`, absolute values, lock contract, `AgentCheck`. Edit there first to prevent drift between skills. |
+| [`ayunit://docs/transaction/fixes`](ayunit://docs/transaction/fixes) | Recipe **R1** is the stuck-PENDING completion pattern. |
 | [`ayunit://docs/transaction/procedure`](ayunit://docs/transaction/procedure) · [`types`](ayunit://docs/transaction/types) | `AccountTransaction_Update` params, the auto-validator suite that this skill relies on, and the `Status` lifecycle. |
 | [`ayunit://docs/checkeddate/usage`](ayunit://docs/checkeddate/usage) | **Before any write.** The lock contract: the proc rejects a write when an `Activated=1` `v_CheckedDate` exists for `(Account, Custody)` and the row's `Date` **or** `SettlementDate` ≤ the lock date. |
 | [`ayunit://docs/portfolio-creator/pipeline`](ayunit://docs/portfolio-creator/pipeline) | Why promoting these rows matters: only `VALIDATED` / `UPDATED` rows with a resolved asset reach `AccountPosition`. |
@@ -170,9 +173,10 @@ For each writable row:
    - **3-C** — leave `Quantity` at 0/NULL, pass `Value` and `Price`; validator
      #3 derives Quantity.
 6. Set `Status = 'UPDATED'`. `UPDATED` counts like `VALIDATED` in the
-   pipeline and skips the strict "Price required" check (CLAUDE.md §3), which
-   protects the 3-B path when the proc's derivation lands at exactly the
-   fill-in NAV.
+   pipeline and skips the strict "Price required" check (see
+   [`references/write-invariants.md`](../../references/write-invariants.md#status-lifecycle-per-transactiontypes)),
+   which protects the 3-B path when the proc's derivation lands at exactly
+   the fill-in NAV.
 7. Set `AgentCheck`:
    ```
    fix YYYY-MM-DD: PENDING re-validated - <bucket 3-A|3-B|3-C>: <what changed> (blocker cleared: <mapping added / price now available / quantity derivable>); Status PENDING->UPDATED [PR]

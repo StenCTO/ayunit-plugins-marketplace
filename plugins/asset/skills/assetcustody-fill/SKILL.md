@@ -22,7 +22,8 @@ patching each row individually. That's O(rows). This skill fixes the
 1. `Portfolio.CustodyPosition_Update @CMD='Update_Missing_Asset'` to back-fill
    every affected CustodyPosition row (proc-side, one call).
 2. The `AccountTransaction_Update @CMD='U'` **auto-Asset-match validator**
-   (see CLAUDE.md §8): on every U/I of a PENDING BUY/SELL/ASSET
+   (see [`ayunit://docs/transaction/procedure`](ayunit://docs/transaction/procedure)
+   and `account-transaction:references/write-invariants.md`): on every U/I of a PENDING BUY/SELL/ASSET
    RECEIPT/DELIVERY, the proc reads `v_AssetCustody(TickerCustody =
    @CustodyIdentifier OR @AssetCustody, Custody = @Custody)` and fills
    `Asset` if it's NULL. So a subsequent `pending-revalidate` invocation
@@ -90,7 +91,7 @@ names always in English.
 | [`ayunit://docs/asset/relationship`](ayunit://docs/asset/relationship) | The FK hub — what `AssetCustody` adds on top of `Global.Asset` (per-custody `TickerCustody`, `TickerCustody2`, `DescriptionCustody`, `PositionFactor`, `PriceFactor`). |
 | `get_procedure_detail('Portfolio', 'AssetCustody_Update')` | Confirm `@CMD='I'` param list before writing. Idempotency note: the proc has NO uniqueness guard on `(Custody, TickerCustody)` — always S-first before I to prevent duplicates. |
 | `get_procedure_detail('Portfolio', 'CustodyPosition_Update')` | `@CMD='Update_Missing_Asset'` params: `@Custody`, `@Date`, `@Account` (all optional). Returns a rowset per back-filled row: `(pk_CustodyPositionID, AssetR, Custody, MatchedAsset, Status)`. |
-| CLAUDE.md §8 (auto-validators) | The `AccountTransaction_Update` auto-Asset-match rule that makes the AssetCustody INSERT propagate automatically to the transaction side (via a subsequent `pending-revalidate` U). |
+| [`ayunit://docs/transaction/procedure`](ayunit://docs/transaction/procedure) + `account-transaction:references/write-invariants.md` (auto-validators section) | The `AccountTransaction_Update` auto-Asset-match rule that makes the AssetCustody INSERT propagate automatically to the transaction side (via a subsequent `pending-revalidate` U). |
 
 ## Tools you call directly
 
@@ -285,7 +286,8 @@ WHERE at.Custody = @custody
 Return this list to the caller as `unblocked_pks`. **This skill does NOT
 write to AccountTransaction.** The caller (routine or user) invokes
 `pending-revalidate` scoped to these pks next — the loader's auto-Asset-
-match validator (CLAUDE.md §8) now sees the mapping and fills `Asset`
+match validator (see [`ayunit://docs/transaction/procedure`](ayunit://docs/transaction/procedure)
+and `account-transaction:references/write-invariants.md`) now sees the mapping and fills `Asset`
 during the U command, promoting the row to VALIDATED.
 
 ### 6 — Report buckets

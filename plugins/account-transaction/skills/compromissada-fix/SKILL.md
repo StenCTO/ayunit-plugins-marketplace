@@ -26,7 +26,8 @@ date window) at the start of every report.
 
 | Resource | Read when… |
 |---|---|
-| [`ayunit://docs/transaction/fixes`](ayunit://docs/transaction/fixes) | **First.** R6 = the exact BUY/SELL fix math, before/after, AgentCheck format. Plus the universal write guardrails (SELECT-first-merge, drop `AccountCurrency`/`AccountFx`, absolute values, AgentCheck). |
+| [`references/write-invariants.md`](../../references/write-invariants.md) | **First — universal write invariants shared by every AccountTransaction leaf.** SELECT-first-merge, drop `AccountCurrency`/`AccountFx`, preserve `RawTransaction`, absolute values, lock contract, `AgentCheck`. Edit there first to prevent drift between skills. |
+| [`ayunit://docs/transaction/fixes`](ayunit://docs/transaction/fixes) | R6 = the exact BUY/SELL fix math, before/after, AgentCheck format. |
 | [`ayunit://docs/checkeddate/usage`](ayunit://docs/checkeddate/usage) | **Before any write.** The lock contract: the proc rejects a write when an `Activated=1` `v_CheckedDate` exists for `(Account, Custody)` and `Date` **or** `SettlementDate` ≤ that lock date. |
 | [`ayunit://docs/transaction/procedure`](ayunit://docs/transaction/procedure) · [`types`](ayunit://docs/transaction/types) | Column-level `Portfolio.AccountTransaction_Update` params and the sign table (proc applies the sign from `TransactionType` — always pass **absolute** values). |
 

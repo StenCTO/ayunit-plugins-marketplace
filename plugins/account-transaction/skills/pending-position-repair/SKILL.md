@@ -81,7 +81,8 @@ evidence and keeps the orchestrator responsible for interpreting Step-2.
 
 | Resource | Read when… |
 |---|---|
-| [`ayunit://docs/transaction/fixes`](ayunit://docs/transaction/fixes) | **First.** Universal write guardrails (SELECT-first-merge, drop `AccountCurrency` / `AccountFx`, absolute values, preserve `RawTransaction`, `AgentCheck`) and the recipes analogous to this repair pattern. |
+| [`references/write-invariants.md`](../../references/write-invariants.md) | **First — universal write invariants shared by every AccountTransaction leaf.** SELECT-first-merge, drop `AccountCurrency`/`AccountFx`, preserve `RawTransaction`, absolute values, lock contract, `AgentCheck`. Edit there first to prevent drift between skills. |
+| [`ayunit://docs/transaction/fixes`](ayunit://docs/transaction/fixes) | Recipes analogous to this repair pattern. |
 | [`ayunit://docs/transaction/procedure`](ayunit://docs/transaction/procedure) · [`types`](ayunit://docs/transaction/types) | `AccountTransaction_Update` params, sign convention, auto-validators, `Status` lifecycle. |
 | [`ayunit://docs/checkeddate/usage`](ayunit://docs/checkeddate/usage) | **Before any write.** The lock this skill respects and never advances. |
 | [`ayunit://docs/position/reconciliation`](ayunit://docs/position/reconciliation) | Vocabulary for the evidence bundle (dQty / dValue interpretation, divergence causes). |
@@ -141,8 +142,10 @@ Base score 0, sum weights, cap 100.
 
 Reject candidates whose direction is impossible given the row's shape (e.g. a
 row with `Value > 0` cannot be a `SELL` unless the sign convention path applies
-— consult `ayunit://docs/transaction/types` and `CLAUDE.md §5` before deciding;
-the procedure applies the sign, but the raw shape should still be coherent).
+— consult [`ayunit://docs/transaction/types`](ayunit://docs/transaction/types)
+and [`references/write-invariants.md`](../../references/write-invariants.md#5-pass-absolute-values-the-procedure-applies-the-sign)
+before deciding; the procedure applies the sign, but the raw shape should
+still be coherent).
 
 ### 3 — Lock-gate
 
@@ -185,7 +188,8 @@ For the HIGH-confidence candidate:
    payload otherwise (generic 400 before SQL runs).
 3. **Preserve `RawTransaction`** — pass the full JSON string back intact.
 4. **Pass absolute values** for `Quantity` / `Price` / `PriceExFee` / `Value` /
-   `ValueGross`. The proc applies the sign per `CLAUDE.md §5`.
+   `ValueGross`. The proc applies the sign per
+   [`references/write-invariants.md`](../../references/write-invariants.md#5-pass-absolute-values-the-procedure-applies-the-sign).
 5. **Overlay the inferred fields:**
    - `Asset = <candidate.Asset>`
    - `AssetRelated = <candidate.Asset>` (repair pattern: `AssetRelated` mirrors
@@ -197,7 +201,9 @@ For the HIGH-confidence candidate:
      surface as **Reported — transaction type conflict** and do not write.
    - Leave `Quantity`, `Value`, `Price`, `PriceExFee`, `ValueGross` at whatever
      the row already carried — the delta match justified the write, and the
-     proc's auto-validators (`CLAUDE.md §8`) fill any gaps.
+     proc's auto-validators (see
+     [`references/write-invariants.md`](../../references/write-invariants.md#auto-validators-the-procedure-runs-on-i--u-for-asset-trades))
+     fill any gaps.
 6. Set `Status = 'UPDATED'`. `UPDATED` counts like `VALIDATED` in the pipeline
    and skips the strict "Price required" check.
 7. Set `AgentCheck` — mandatory, this is the audit trail the analyst reads:
@@ -314,7 +320,9 @@ Return a single JSON object per invocation:
   Not this skill. Cash reconciliation plugs are `position-quantity-adjustment`
   territory. Bucket **Skipped — not this skill**.
 - **Row is a come-cotas (Obs `LIKE '%COME COTAS%'`).** Not this skill.
-  Follow the come-cotas recipe in `CLAUDE.md §6` / `transaction/fixes`.
+  Follow the come-cotas recipe in
+  [`ayunit://docs/transaction/fixes`](ayunit://docs/transaction/fixes) (R2)
+  or `routines:daily-btg-onshore-routine`'s `references/come-cotas.md`.
 - **`RawTransaction` is huge (JP, MS-style).** Preserve it verbatim; the
   column is `nvarchar(max)`.
 - **The evidence bundle lacks `peer_context`.** Score the candidate without

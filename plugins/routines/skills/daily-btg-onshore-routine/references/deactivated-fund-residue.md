@@ -155,7 +155,7 @@ Fix applied: `Status = 'IGNORED'` with the `[PR-IGN-DEACT]` AgentCheck tag.
   in-kind tax; the account genuinely holds quotas and surrenders some. This
   recipe applies only when the account has **no** history in the asset. If
   the fund is active or the account has ever held quotas, use the come-cotas
-  recipe in `CLAUDE.md §6` instead.
+  recipe in [`come-cotas.md`](come-cotas.md) instead.
 - **Not a duplicate-trade case.** No mirror row exists to reconcile against.
 - **Not a Bucket 3-A/3-B/3-C revalidate.** The blocker isn't "master data
   caught up" — the master data actively says the asset is deactivated.

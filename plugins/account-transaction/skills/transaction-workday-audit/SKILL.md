@@ -547,11 +547,12 @@ write directly and does not move locks.
 
 | # | Skill | Why in this position |
 |---|---|---|
-| 1 | `compromissada-fix` | XP's repo-shape normalisation is a distinct ingestion pattern that would otherwise inflate downstream PENDING / duplicate buckets. Fixing it first cleans the input for every following step. |
+| **0** | **`duplicate-trade-reconcile` (pre-pass)** | **Structural duplicates already visible in the raw tape — promoted-only duplicates on income / cash, and provisional-vs-restated qty duplicates — must be reconciled BEFORE any promoting leaf runs. Skipping this and promoting first has doubled cash income in production (verified 2026-07-15, account 005132370, R$14,988 double-count via `assetrelated-fix` running ahead of dedup). Belt: the same skill re-runs at step 5 as a suspenders sweep against any post-promotion clusters.** |
+| 1 | `compromissada-fix` | XP's repo-shape normalisation is a distinct ingestion pattern that would otherwise inflate downstream PENDING / duplicate buckets. Fixing it after the pre-pass cleans the input for every following step. |
 | 2 | `assetrelated-fix` | Fills `AssetRelated` on GL RECEIPT `INTEREST`/`DIVIDEND` (income) rows — a disjoint blocker (`missing: AssetRelated`) that `pending-revalidate` deliberately does NOT handle. Must run before `pending-revalidate` or those rows are stranded. |
 | 3 | `pending-revalidate` | Clears 3-A / 3-B / 3-C blockers (`missing: Asset` / `Price` / `Quantity`) whose master-data prerequisites Check 1 has just unblocked. Runs after 1 and 2 so its input is clean and disjoint. |
 | 4 | `pending-position-repair` | Position-delta inference for the 3-Z-unclassified residuum surviving step 3 — PENDINGs whose `RawTransaction` carries no valid asset identifier but whose `AccountPosition ↔ CustodyPosition` delta reveals the intended `(Asset, direction)`. |
-| 5 | `duplicate-trade-reconcile` | With PENDINGs cleared by 3 / 4, the cluster detector sees the true `VALIDATED` / `UPDATED` book, so the reconciliation against `Portfolio.CustodyPosition` isn't polluted by PENDING noise. |
+| 5 | `duplicate-trade-reconcile` (suspenders sweep) | Post-promotion re-sweep. With PENDINGs cleared by 3 / 4, the cluster detector sees the true `VALIDATED` / `UPDATED` book and catches any duplicates that were only visible AFTER promotion. Detector now includes cash / income cluster keys — see step body. |
 | 6 | `position-quantity-adjustment` | Structural plug for the residual quantity / cash breaks the previous five didn't close (fractional dust, rounding gaps). Runs last as the backstop. |
 
 ### Pre-flight — Check 1 residual gate
@@ -567,6 +568,97 @@ Do NOT hard-gate — the analyst may deliberately defer a registration
 (waiting on legal, ambiguous CNPJ, low-confidence enrichment). Do NOT auto-run
 Check 1's hand-off from inside Check 2 — that would be too much magic packed
 into a single call.
+
+### Step 0 — `duplicate-trade-reconcile` (pre-pass, sweep the raw tape BEFORE promoting)
+
+**Why this step exists.** A duplicate that is `PENDING` today becomes a
+`VALIDATED` / `UPDATED` duplicate the moment a promoting sibling (`assetrelated-fix`,
+`pending-revalidate`, `pending-position-repair`) touches it. If dedup runs
+only *after* the promotions, the `AccountPosition` double-counts between
+those two steps and until the analyst notices — verified 2026-07-15 on
+account 005132370 (assetrelated-fix promoted a duplicate income row that the
+old step-5-only order had no chance to catch; R$14,988 double-count in cash).
+Recording the discipline: **dedup runs both before and after the promoting
+leaves**. Step 0 catches what the tape already shows; step 5 catches anything
+the promotions surfaced.
+
+**Detector probe — dual-key cluster.** Two disjoint families of duplicate need
+distinct cluster keys, so this probe UNIONs them:
+
+- **Asset-side** — `BUY` / `SELL` / `ASSET RECEIPT` / `ASSET DELIVERY` rows
+  clustered on `(ClientAccount, Custody, Asset, TransactionType, Date, ABS(Quantity))`.
+  Two rows sharing that key are candidate duplicates of the same trade event.
+- **Cash-side (income, withdrawals, deposits, GL)** — `GENERAL LEDGER RECEIPT` /
+  `GENERAL LEDGER DELIVERY` / `WITHDRAW` / `DEPOSIT` rows clustered on
+  `(ClientAccount, Custody, Asset, TransactionType, Date, ABS(Value), GeneralLedgerDescription)`.
+  Cash / income duplicates never share a quantity signal — the quantity IS
+  the value — so the cluster key needs `ABS(Value)` plus the description to
+  distinguish "same-day, same-value coupon on the same fund" (a duplicate)
+  from "same-day, same-value coupon on two different funds" (not a duplicate).
+
+```sql
+WITH asset_clusters AS (
+    SELECT
+        t.ClientAccount, t.Custody, t.Asset, t.TransactionType, t.Date,
+        ABS(t.Quantity)             AS ClusterKey,
+        'qty'                       AS KeyKind,
+        NULL                        AS Gld,
+        COUNT(*)                    AS [RowCount],
+        MIN(t.Value)                AS MinValue,
+        MAX(t.Value)                AS MaxValue,
+        SUM(CASE WHEN t.Status IN ('VALIDATED','UPDATED') THEN 1 ELSE 0 END) AS ValidatedCount,
+        SUM(CASE WHEN t.Status = 'PENDING' THEN 1 ELSE 0 END)                AS PendingCount,
+        STRING_AGG(CAST(t.pk_AccountTransactionID AS varchar(32)), ',')      AS Pks
+    FROM Portfolio.v_AccountTransaction t
+    WHERE t.Date >= DATEADD(day, -7, CAST(GETDATE() AS date))       -- <period>
+      AND t.TransactionType IN ('BUY','SELL','ASSET RECEIPT','ASSET DELIVERY')
+      AND t.Asset IS NOT NULL
+      AND t.Quantity IS NOT NULL AND t.Quantity <> 0
+      AND t.Status IN ('PENDING','VALIDATED','UPDATED')
+    GROUP BY t.ClientAccount, t.Custody, t.Asset, t.TransactionType, t.Date, ABS(t.Quantity)
+    HAVING COUNT(*) > 1
+),
+cash_clusters AS (
+    SELECT
+        t.ClientAccount, t.Custody, t.Asset, t.TransactionType, t.Date,
+        ABS(t.Value)                                      AS ClusterKey,
+        'value'                                           AS KeyKind,
+        LEFT(ISNULL(t.GeneralLedgerDescription,''), 200)  AS Gld,
+        COUNT(*)                    AS [RowCount],
+        MIN(t.Value)                AS MinValue,
+        MAX(t.Value)                AS MaxValue,
+        SUM(CASE WHEN t.Status IN ('VALIDATED','UPDATED') THEN 1 ELSE 0 END) AS ValidatedCount,
+        SUM(CASE WHEN t.Status = 'PENDING' THEN 1 ELSE 0 END)                AS PendingCount,
+        STRING_AGG(CAST(t.pk_AccountTransactionID AS varchar(32)), ',')      AS Pks
+    FROM Portfolio.v_AccountTransaction t
+    WHERE t.Date >= DATEADD(day, -7, CAST(GETDATE() AS date))       -- <period>
+      AND t.TransactionType IN ('GENERAL LEDGER RECEIPT','GENERAL LEDGER DELIVERY','WITHDRAW','DEPOSIT')
+      AND t.Value IS NOT NULL AND t.Value <> 0
+      AND t.Status IN ('PENDING','VALIDATED','UPDATED')
+    GROUP BY t.ClientAccount, t.Custody, t.Asset, t.TransactionType, t.Date,
+             ABS(t.Value), LEFT(ISNULL(t.GeneralLedgerDescription,''), 200)
+    HAVING COUNT(*) > 1
+)
+SELECT * FROM asset_clusters
+UNION ALL
+SELECT * FROM cash_clusters
+ORDER BY Custody, ClientAccount, Date DESC;
+```
+
+**Invocation.** `Skill(account-transaction:duplicate-trade-reconcile)` per
+cluster, exactly as step 5 does. Pass the cluster's `Pks` or the
+`(Account, Custody, Asset, Date)` scope plus the `KeyKind` (`qty` vs `value`)
+so the sibling picks the right reconciliation strategy — asset qty-clusters
+tie out against `CustodyPosition.Quantity` day-over-day; cash / income
+clusters tie out against the description repetition, since custody positions
+don't reflect cash flow duplicates.
+
+**Re-probe.** Re-run the dual-key UNION query. Expected: every candidate
+cluster resolved (`RowCount = 1` on the key), or reported by the sibling as
+`Reported — no custody / ambiguous` for the analyst. Report the delta.
+
+**Skip-if-empty.** Both branches empty → report `step 0: 0 clusters,
+skipped`, move straight to step 1.
 
 ### Step 1 — `compromissada-fix` (COMPROMISSADA repo normalisation)
 
@@ -799,29 +891,39 @@ context per row, so this step is per-pk rather than batched.
 and drop out. MED / LOW pks stay `PENDING` — surface them as "candidates
 for analyst review" with the sibling's ranked-candidates report.
 
-### Step 5 — `duplicate-trade-reconcile` (structural duplicates against custody)
+### Step 5 — `duplicate-trade-reconcile` (post-promotion suspenders sweep)
 
-**Detector probe — same-key clusters.** Two rows are a candidate duplicate
-pair when they share **all** of: `ClientAccount`, `Custody`, `Asset`,
-`TransactionType`, `Date`, `ABS(Quantity)`. `Value` / `Price` are
-deliberately NOT in the cluster key — a re-sent trade with a revised NAV
-keeps the same quantity but shifts the price and would otherwise slip through.
-Cluster-internal `Value` variance is reported as a signal (identical →
-plain double load; drifted → likely price restatement). A ±1-day widening is
-NOT built in book-wide (per-custody consecutive-day restatements are
-resolved by the sibling against `CustodyPosition`, not here).
+**Purpose.** Step 0 caught what the raw tape already showed. Step 5 catches
+what the promoting leaves (steps 2 – 4) surfaced by moving `PENDING` rows
+into the `VALIDATED` / `UPDATED` book — most commonly on cash / income where
+promotion is the only way a duplicate becomes position-impacting. Runs the
+same dual-key detector as step 0 (asset qty-key UNION cash/income value-key).
 
-With steps 3 / 4 having cleared PENDINGs, the cluster detector sees the
-true `VALIDATED` / `UPDATED` book.
+Cluster keys:
+
+- **Asset-side** — `(ClientAccount, Custody, Asset, TransactionType, Date, ABS(Quantity))`
+  over `BUY` / `SELL` / `ASSET RECEIPT` / `ASSET DELIVERY`. `Value` is
+  deliberately NOT in the key — a re-sent trade with a revised NAV keeps the
+  same quantity but shifts the price and would otherwise slip through.
+- **Cash-side** — `(ClientAccount, Custody, Asset, TransactionType, Date, ABS(Value), GeneralLedgerDescription)`
+  over `GENERAL LEDGER RECEIPT` / `GENERAL LEDGER DELIVERY` / `WITHDRAW` /
+  `DEPOSIT`. Cash duplicates have no quantity signal — `ABS(Value) + GLD` is
+  the distinguishing tuple; the description guards against same-day, same-value
+  coupons on two different holdings being collapsed into one cluster.
+
+A ±1-day widening is NOT built in book-wide (per-custody consecutive-day
+restatements are resolved by the sibling against `CustodyPosition`).
 
 ```sql
-WITH clusters AS (
+WITH asset_clusters AS (
     SELECT
         t.ClientAccount, t.Custody, t.Asset, t.TransactionType, t.Date,
-        ABS(t.Quantity) AS AbsQty,
-        COUNT(*)                          AS [RowCount],
-        MIN(t.Value)                      AS MinValue,
-        MAX(t.Value)                      AS MaxValue,
+        ABS(t.Quantity)                                    AS ClusterKey,
+        'qty'                                              AS KeyKind,
+        NULL                                               AS Gld,
+        COUNT(*)                                           AS [RowCount],
+        MIN(t.Value)                                       AS MinValue,
+        MAX(t.Value)                                       AS MaxValue,
         SUM(CASE WHEN t.Status IN ('VALIDATED','UPDATED') THEN 1 ELSE 0 END) AS ValidatedCount,
         SUM(CASE WHEN t.Status = 'PENDING' THEN 1 ELSE 0 END)                AS PendingCount,
         STRING_AGG(CAST(t.pk_AccountTransactionID AS varchar(32)), ',')      AS Pks
@@ -833,9 +935,35 @@ WITH clusters AS (
       AND t.Status IN ('PENDING','VALIDATED','UPDATED')
     GROUP BY t.ClientAccount, t.Custody, t.Asset, t.TransactionType, t.Date, ABS(t.Quantity)
     HAVING COUNT(*) > 1
+),
+cash_clusters AS (
+    SELECT
+        t.ClientAccount, t.Custody, t.Asset, t.TransactionType, t.Date,
+        ABS(t.Value)                                       AS ClusterKey,
+        'value'                                            AS KeyKind,
+        LEFT(ISNULL(t.GeneralLedgerDescription,''), 200)   AS Gld,
+        COUNT(*)                                           AS [RowCount],
+        MIN(t.Value)                                       AS MinValue,
+        MAX(t.Value)                                       AS MaxValue,
+        SUM(CASE WHEN t.Status IN ('VALIDATED','UPDATED') THEN 1 ELSE 0 END) AS ValidatedCount,
+        SUM(CASE WHEN t.Status = 'PENDING' THEN 1 ELSE 0 END)                AS PendingCount,
+        STRING_AGG(CAST(t.pk_AccountTransactionID AS varchar(32)), ',')      AS Pks
+    FROM Portfolio.v_AccountTransaction t
+    WHERE t.Date >= DATEADD(day, -7, CAST(GETDATE() AS date))       -- <period>
+      AND t.TransactionType IN ('GENERAL LEDGER RECEIPT','GENERAL LEDGER DELIVERY','WITHDRAW','DEPOSIT')
+      AND t.Value IS NOT NULL AND t.Value <> 0
+      AND t.Status IN ('PENDING','VALIDATED','UPDATED')
+    GROUP BY t.ClientAccount, t.Custody, t.Asset, t.TransactionType, t.Date,
+             ABS(t.Value), LEFT(ISNULL(t.GeneralLedgerDescription,''), 200)
+    HAVING COUNT(*) > 1
+),
+clusters AS (
+    SELECT * FROM asset_clusters
+    UNION ALL
+    SELECT * FROM cash_clusters
 )
 SELECT
-    ClientAccount, Custody, Asset, TransactionType, Date, AbsQty,
+    ClientAccount, Custody, Asset, TransactionType, Date, ClusterKey, KeyKind, Gld,
     RowCount, ValidatedCount, PendingCount,
     MinValue, MaxValue,
     CASE

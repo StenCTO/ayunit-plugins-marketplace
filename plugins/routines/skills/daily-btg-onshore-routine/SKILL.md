@@ -37,7 +37,7 @@ genuinely cannot decide.
 | Leaf `pending-position-repair` — evidence bundle supports a HIGH-confidence candidate | **Invoke autonomously**. Leaf writes only on HIGH; MED/LOW comes back as a report item. |
 | Leaf `assetrelated-fix` — GL income row with resolvable AssetRelated | **Invoke autonomously**. |
 | Leaf `duplicate-trade-reconcile` — clean pair against `CustodyPosition` | **Invoke autonomously**. |
-| Leaf `position-quantity-adjustment` — reconciliation plug (synthetic trade) | **Do not invoke** unless the caller pre-authorised plugs at run start. Report as human-action. This is the one leaf that invents value, so it stays human-only by default. |
+| Leaf `position-quantity-adjustment` — reconciliation plug (synthetic trade) | **Invoke autonomously within the leaf's built-in tolerances** — the leaf's own gate (`ASSET`: `\|Δ\|<1` *unit* AND `\|Δ\|*Price<R$5`; `CASH`: `\|Δ\|<R$5` of the currency itself) is the authorisation. Anything above tolerance the leaf refuses on its own and comes back as a report item (real break → human). This matches `account-transaction:transaction-workday-audit` Check 2 step 6 — the two orchestrators must not diverge on the same leaf's autonomy stance. |
 | Leaf returns MED/LOW confidence or refuses | **Report as human-action** — the leaf already made the safe call. |
 | No matching recipe (unclassified `PENDING`, ambiguous divergence, unregistered custody identifier) | **Report as human-action** with the SQL to investigate. |
 | Pricing-only residual (`QtyMismatchAssets = 0`, `PctDiffPosition` material) | **Report as informational** — pricing team hand-off. Not a routine failure. |
@@ -122,7 +122,7 @@ Before doing anything:
 | [`references/cash-gap-investigation.md`](references/cash-gap-investigation.md) | **Local recipe — invoked from Step 2.5.** Day-by-day BRL delta walk to find the shock date, per-row classification against the recipe library, BTG feed cross-check as last resort. |
 | [`references/troca-de-nome.md`](references/troca-de-nome.md) | **Local recipe.** FII name-change swap misclassified by the loader as BUY/SELL. Reclassifies to ASSET RECEIPT/DELIVERY, zeros Value/ValueGross. Ships the `[TROCA-NOME]` tag. |
 | [`references/deposito-tributos-provisionados.md`](references/deposito-tributos-provisionados.md) | **Local recipe.** Tax-provisioning artifact on active funds (structurally similar to come-cotas but empirically causes no custody-side reduction). IGNORE. Ships the `[PR-IGN-TAXPROV]` tag. |
-| [`references/come-cotas.md`](references/come-cotas.md) | **Local recipe** (migrated from project `CLAUDE.md §6`). Come-cotas SELL on active funds — PENDING promoted to UPDATED with fields preserved. Ships the `[CC]` tag. |
+| [`references/come-cotas.md`](references/come-cotas.md) | **Local recipe.** Come-cotas SELL on active funds — PENDING promoted to UPDATED with fields preserved. Ships the `[CC]` tag. Cross-reference: [`ayunit://docs/transaction/fixes`](ayunit://docs/transaction/fixes) R2. |
 | [`references/deactivated-fund-residue.md`](references/deactivated-fund-residue.md) | **Local recipe.** Pattern + detection + fix for `PENDING` rows whose Asset resolves to a `Global.Asset.Activated = FALSE` fund with no account history. IGNORE. Ships the `[PR-IGN-DEACT]` tag. |
 
 ## Tools this skill calls directly
@@ -149,7 +149,8 @@ Before doing anything:
   pipeline doc). The recalc is **idempotent** — safe to re-run after a
   transport timeout. Params: `end_date` (YYYY-MM-DD), `client_accounts` (list,
   passed **exactly as stored** in `Global.v_ClientAccount.ClientAccount` — for
-  BTG onshore this is the 9-digit zero-padded form per CLAUDE.md §1),
+  BTG onshore this is the 9-digit zero-padded form — see
+  `account-transaction:references/write-invariants.md#account-key-format`),
   `create_after_checked_date=true` (default; the pipeline deletes and rebuilds
   `AccountPosition` / `Share` rows *after* the active lock, which is exactly
   what we want post-fix), `run_validation=false`, `consider_cpr=false`.
@@ -488,7 +489,8 @@ Notes on the call:
 - **Account format is critical.** Pass exactly what
   `Global.v_ClientAccount.ClientAccount` contains for this account. For BTG
   onshore this is the 9-digit zero-padded form (`'000047067'`, not
-  `'47067'`) per `CLAUDE.md §1`. Passing the wrong form silently returns
+  `'47067'`) — see `account-transaction:references/write-invariants.md#account-key-format`.
+  Passing the wrong form silently returns
   an empty result set — the run "succeeds" but touches no rows.
 - **`from_date` is implicit.** `create_after_checked_date=true` means the
   pipeline itself decides — it walks from `active CheckedDate + 1` to

@@ -78,4 +78,4 @@ and migrate to `/schedule` (Anthropic-hosted) — out of scope here.
 6. Register a new Desktop scheduled task with the appropriate prompt.
 
 ---
-_Sten Capital · v0.3.0_
+_Sten Capital · v0.5.1_

@@ -39,7 +39,8 @@ Any filter expressible over `Portfolio.v_AccountTransaction` columns — one or 
 |---|---|
 | [`ayunit://docs/checkeddate/usage`](ayunit://docs/checkeddate/usage) | **Before any delete.** The lock contract: the proc rejects a write when an `Activated=1` `v_CheckedDate` exists for `(Account, Custody)` and the trade's `Date` **or** `SettlementDate` ≤ the lock date. Two `Activated=1` rows for one `(Account,Custody)` break the proc (scalar subquery → error 512) — detect and skip. |
 | [`ayunit://docs/transaction/procedure`](ayunit://docs/transaction/procedure) · [`types`](ayunit://docs/transaction/types) | `Portfolio.AccountTransaction_Update` params, CMDs (`I`/`U`/`D`), and the status lifecycle (only `VALIDATED`/`UPDATED` reach `AccountPosition`). |
-| [`ayunit://docs/transaction/fixes`](ayunit://docs/transaction/fixes) | Universal write guardrails and the IGNORE-vs-delete distinction for double-loaded rows. |
+| [`references/write-invariants.md`](../../references/write-invariants.md) | **First — universal write invariants shared by every AccountTransaction leaf.** SELECT-first-merge, drop `AccountCurrency`/`AccountFx`, preserve `RawTransaction`, absolute values, lock contract, `AgentCheck`. Edit there first to prevent drift between skills. |
+| [`ayunit://docs/transaction/fixes`](ayunit://docs/transaction/fixes) | The IGNORE-vs-delete distinction for double-loaded rows. |
 | [`ayunit://docs/portfolio-creator/pipeline`](ayunit://docs/portfolio-creator/pipeline) | Why a surplus `VALIDATED` duplicate double-counts: each one is summed into `AccountPosition`. |
 
 ## Tools you call directly

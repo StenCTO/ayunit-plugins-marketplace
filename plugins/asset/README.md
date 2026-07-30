@@ -64,4 +64,4 @@ MCP**, writes are explicit and verified.
    `/plugin marketplace update sten-ayunit`.
 
 ---
-_Sten Capital · v0.5.0_
+_Sten Capital · v0.5.1_
