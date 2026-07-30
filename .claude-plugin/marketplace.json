@@ -11,7 +11,7 @@
     {
       "name": "account-transaction",
       "source": "./plugins/account-transaction",
-      "description": "Custody activity loaders (UBS Miami, Morgan Stanley, BTG Offshore) plus batch fixers (duplicate-trade-reconcile, compromissada-fix, assetrelated-fix) for Portfolio.AccountTransaction."
+      "description": "Portfolio.AccountTransaction tools on the ayunit MCP. Loader: ubs-miami. Orchestrator: transaction-workday-audit (Check 1 → routines:new-asset-onboarding; Check 2 chains compromissada-fix → assetrelated-fix → pending-revalidate → pending-position-repair → duplicate-trade-reconcile → position-quantity-adjustment). Fixers: pending-revalidate, pending-position-repair, duplicate-trade-reconcile, assetrelated-fix, compromissada-fix, position-quantity-adjustment. Every write goes through a sibling's own preview/confirm/execute + CheckedDate lock enforcement."
     },
     {
       "name": "position",
