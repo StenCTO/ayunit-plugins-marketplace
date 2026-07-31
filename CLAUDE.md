@@ -11,9 +11,15 @@ Read this before editing any plugin, skill, or `marketplace.json`.
 - **Bump the plugin's `version` on every user-visible change.** Teammates only
   receive updates when `plugins/<domain>/.claude-plugin/plugin.json` `version`
   changes. Skipping the bump silently strands the fix.
+- **Land every release via a PR merged to `main`, never a direct push.** The
+  Cowork Desktop marketplace sync auto-fires only on PR merges to the default
+  branch — direct pushes to `main` are silently invisible to teammates' Cowork
+  Desktops and strand the version bump on GitHub even though the commit
+  landed. See §3.5 for the concrete release workflow.
 - **Push to BOTH remotes on every release.** `origin` = Azure DevOps (source of
   truth), `github` = distribution mirror teammates install from. "Push" means
-  `git push origin && git push github` — never just one.
+  the branch reaches both remotes AND the PR merge on `github` is mirrored to
+  `origin/main` (see §3.5 step 6). Never leave one remote behind.
 - **Never commit `.mcp.json`.** It contains the ayunit API key. `.mcp.json` is
   git-ignored; only `.mcp.json.example` is committed. If you see `.mcp.json` in
   `git status`, stop and check `.gitignore` before doing anything else.
@@ -75,6 +81,62 @@ Rules:
 - Summary in the imperative, no trailing period.
 - No emojis. No "Generated with Claude Code" footers.
 
+## 3.5 Release workflow — PR-to-`main`, mirror to Azure
+
+**Why this exists.** Cowork Desktop's marketplace CDN auto-syncs only on PR
+merges to the default branch. A direct `git push origin main` (or `git push
+github main`) lands the commit but never notifies the CDN — teammates see the
+old "Last updated" date indefinitely, even after restarting Desktop. This
+happened between 2026-07-20 and 2026-07-31: five commits stranded, four
+plugin version bumps invisible.
+
+The workflow below adds ~30 seconds per release and mechanically prevents
+that failure.
+
+```bash
+# 1. Branch from main for the change
+git checkout main && git pull github main
+git checkout -b <short-descriptor>              # e.g. bump-workday-audit-dedup
+
+# 2. Edit, bump every changed plugin's version, doc-coherence grep (§4 step 6)
+#    Commit with the §3 message style
+git add <files>
+git commit -m "<plugin> v<X.Y.Z>: <summary>"
+
+# 3. Push the branch to BOTH remotes
+git push github <short-descriptor>              # required — triggers PR flow
+git push origin <short-descriptor>              # keeps Azure in sync
+
+# 4. Open a PR on GitHub → merge it (squash + delete branch)
+#    URL: https://github.com/StenCTO/ayunit-plugins-marketplace/pull/new/<short-descriptor>
+#    Merging to `main` on GitHub is what fires the marketplace CDN sync.
+
+# 5. Locally fast-forward main to the merged commit
+git checkout main
+git fetch github && git merge --ff-only github/main
+git branch -d <short-descriptor>
+
+# 6. Mirror the merged commit to Azure so both remotes stay identical
+git push origin main
+```
+
+**Belt-and-suspenders.** Enable **branch protection on `main`** in GitHub
+Settings → Branches → Add rule → "Require a pull request before merging".
+Once on, GitHub rejects any direct `git push github main`, mechanically
+enforcing this workflow. Recommended even for a solo maintainer — it removes
+the failure mode entirely.
+
+**When teammates get the update.** After step 4 merges, the marketplace CDN
+picks up the new manifest on its next sync (typically minutes). Teammates
+receive the new plugin versions on their **next Cowork Desktop restart**,
+provided their marketplace has "Sync automatically" enabled (a one-time
+per-teammate setup: Settings → Marketplaces → sten-ayunit → toggle on).
+
+**Exceptions to PR flow.** None for plugin changes. Docs-only edits to root
+`README.md` or this `CLAUDE.md` may go via PR too for consistency, but a
+direct push doesn't strand anything user-facing — no version bump means no
+plugin update to propagate.
+
 ## 4. Editing a skill — checklist
 
 1. Edit `plugins/<domain>/skills/<skill>/SKILL.md` (or a `references/*.md` it links to).
@@ -95,7 +157,7 @@ Rules:
    grep -n "<plugin-name>" README.md
    ```
    Fix anything stale in the SAME commit.
-7. Commit + push to **both remotes** (see §0).
+7. Commit + release via PR-to-`main` **on both remotes** (see §0 + §3.5).
 
 ## 5. Skills & the ayunit MCP docs (source of truth for domain concepts)
 
@@ -142,6 +204,8 @@ is a finding worth flagging.
 
 - Commit `.mcp.json`, `.env`, or any file with an API key.
 - Force-push to `main` on either remote.
+- **Direct-push a plugin change to `main` on `github`** — the marketplace CDN
+  won't sync (see §3.5). Always land plugin changes via a PR merge on GitHub.
 - Push to only one remote — they must not drift.
 - Edit a skill without bumping the plugin version (silent stranded fix).
 - Remove YAML frontmatter from a `SKILL.md`.
