@@ -26,7 +26,7 @@
     {
       "name": "routines",
       "source": "./plugins/routines",
-      "description": "Orchestrator skills (meta-skills) that chain leaf skills from account-transaction, asset, and position into daily/weekly backoffice routines. Designed for Claude Cowork Desktop scheduled tasks. Skills: new-asset-onboarding (master-data sweep across all custodies), daily-btg-onshore-routine, daily-btg-offshore-routine."
+      "description": "Orchestrator skills (meta-skills) that chain leaf skills from account-transaction, asset, and position into daily/weekly backoffice routines and one-shot onboarding pipelines. Designed for Claude Cowork Desktop scheduled tasks (daily ones) or manual invocation (one-shots). Skills: new-asset-onboarding (daily master-data sweep across all custodies), daily-btg-onshore-routine (BTG onshore reconciliation), daily-btg-offshore-routine (BTG Cayman reconciliation), btg-onshore-onboarding (one-shot inception-position backlog pipeline that seeds Portfolio.AccountPosition + advances the first CheckedDate for BTG onshore accounts with custody rows but no lock yet — runs before the daily routines take over)."
     },
     {
       "name": "anbima-data",

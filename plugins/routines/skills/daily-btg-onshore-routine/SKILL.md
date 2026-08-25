@@ -32,7 +32,10 @@ genuinely cannot decide.
 
 | Situation | Behaviour |
 |---|---|
-| High-confidence pre-classifier match (all seven residue signals fire) | **Write autonomously** — `Status = IGNORED`, `[PR-IGN-DEACT]` AgentCheck. |
+| High-confidence pre-classifier match (deactivated-fund all seven residue signals fire) | **Write autonomously** — `Status = IGNORED`, `[PR-IGN-DEACT]` AgentCheck. |
+| High-confidence pre-classifier match (fund-incorporation-duplicate — AQUISICAO VIRTUAL + signal A or B fires) | **Write autonomously** — `Status = IGNORED`, `[FUND-INC-DUP]` AgentCheck. |
+| Price backfill from custody (§3.3.5 — asset held, `AssetData.v_Price` missing, custody has Price > 0, no other Source already present for that key) | **INSERT autonomously** via `AssetData.Price_Update @CMD='I'` batch with `Source='<custody>'`. Pure master-data write, does not touch positions. |
+| Residual auto-plug within tolerance (§3.6 — non-cash asset, `\|dQty\|/cust_qty < 0.1%` OR dust on no-longer-held, `\|dQty\|×Price < R$500`) | **Write autonomously** via synthetic BUY/SELL with `[POS-PLUG]` or `[POS-PLUG-DUST]` AgentCheck. Cash-side residuals always escalate. |
 | Leaf `pending-revalidate` — blocker provably cleared | **Invoke autonomously** (dry_run=false). Leaf's own gate decides the write. |
 | Leaf `pending-position-repair` — evidence bundle supports a HIGH-confidence candidate | **Invoke autonomously**. Leaf writes only on HIGH; MED/LOW comes back as a report item. |
 | Leaf `assetrelated-fix` — GL income row with resolvable AssetRelated | **Invoke autonomously**. |
@@ -71,16 +74,60 @@ supplies evidence bundles, and reads the leaf's structured result.
 
 | Input | Default | Notes |
 |---|---|---|
-| `accounts` | all BTG onshore accounts returned by the audit query (§Step 1), ordered by `PendingTrades DESC, UnmatchedAssets DESC, Account` | Narrow to one account or an explicit list for testing. |
-| `end_date` | *per-account* `LastCustodyPositionDate` from `get_daily_control` | Explicit reconcile target date. When the caller supplies one (e.g. "reconcile 004434113 to 2026-04-30"), **use it verbatim** for Step 2 diff SELECTs, Step 3.4 `calculate_portfolio(end_date=…)`, and Step 3.5 re-verify. Do NOT silently extend to `LastCustodyPositionDate` "for downstream consistency" — that inflates recompute cost (verified 2026-07-15: user-scoped 2026-04-30 recompute took ~35s vs the full-history equivalent that had timed out at 520s). Only fall back to `LastCustodyPositionDate` when the caller did not specify `end_date`. |
-| `dry_run` | `false` | `true` → every leaf skill is also dry-run / read-only; PortfolioCreator is not triggered; no state lock; report written under `dry-run/`. |
+| `accounts` | all BTG onshore accounts returned by the audit query (§Step 1), ordered by `PendingTrades DESC, UnmatchedAssets DESC, Account` | Narrow to one account or an explicit list for testing. **Any short-form account ID (e.g. `47067`, `4434131`) is normalized to 9-digit zero-padded (`000047067`, `004434131`) at entry** — the `get_daily_control` tool and every downstream write matches on the padded form; passing the unpadded form silently returns 0 rows (verified 2026-08-24 on `4434131` → 0 rows vs `004434131` → 1 row). |
+| `end_date` | **`today − 1` business day (D-1)**, capped per-account at `LastCustodyPositionDate` when custody hasn't caught up | Explicit reconcile target date. Resolution precedence: (1) caller-supplied `end_date` verbatim; (2) else D-1 (yesterday's business day in America/Sao_Paulo); (3) else per-account `LastCustodyPositionDate` when D-1 exceeds it (can't reconcile past custody). When the caller supplies one (e.g. "reconcile 004434113 to 2026-04-30"), **use it verbatim** for Step 2 diff SELECTs, Step 3.4 `calculate_portfolio(end_date=…)`, and Step 3.5 re-verify. Do NOT silently extend "for downstream consistency" — that inflates recompute cost (verified 2026-07-15: user-scoped 2026-04-30 recompute took ~35s vs the full-history equivalent that had timed out at 520s). |
+| `refresh_from_btg` | `false` | Opt-in Step 0 — when `true`, pull the day's `CustodyPosition` from BTG (`process_btg_onshore_position`) and the window's transactions (`process_btg_onshore_transactions_by_period` / `..._monthly_transactions` depending on age) **before** running Step 1 audit. Ensures the routine reconciles against the freshest custody snapshot rather than whatever the last scheduled loader left behind. Requires `access_name` (see §access-name cache). Skipped silently when `dry_run=true`. |
+| `dry_run` | `false` | `true` → every leaf skill is also dry-run / read-only; PortfolioCreator is not triggered; `refresh_from_btg` is skipped (would write to CustodyPosition); no state lock; report written under `dry-run/`. |
 | `force` | `false` | `true` → ignore the day's state lock and run anyway. Use only on a confirmed crash mid-way. |
 | `max_accounts` | `null` (all) | Optional cap; useful for a first-run smoke test. |
+| `access_name` | resolved via cache (see below) | BTG credential-profile name. Required whenever `refresh_from_btg=true` or a Step 2.5 Step-D BTG feed cross-check fires. |
 
-**Echo the resolved `(accounts, end_date, dry_run, force, max_accounts)` at the
+**Echo the resolved `(accounts, end_date, refresh_from_btg, dry_run, force, max_accounts, access_name)` at the
 start of every reply.** If `dry_run = true`, prefix every status line with
 `[DRY-RUN]`. Reply in the analyst's language (PT or EN); JSON field names
 always in English.
+
+### Progressive status output (chat)
+
+Long runs (multi-month recomputes, fleet-wide loops) leave the analyst blind
+if the routine only speaks at the end. Emit a one-line `[STEP <n> · <account>]
+<what's happening>` message to chat **before** each of these transitions —
+no batching, no waiting for the report:
+
+- `[STEP 0] refresh_from_btg — pulling <YYYY-MM-DD> custody + <period> transactions`
+- `[STEP 1] audit — <N> late accounts returned, <M> after filter`
+- `[STEP 2 · <acct>] position diff @ <end_date> — <k> divergence lines, <p> PENDING in window`
+- `[STEP 2.5 · <acct>] cash-gap investigation — shock date <YYYY-MM-DD>, jump <±R$X>`
+- `[STEP 3 · <acct>] pre-classifier — <recipe> claimed <k> rows`
+- `[STEP 3 · <acct>] leaf <name> — <ran|skipped:<reason>>, wrote <k>`
+- `[STEP 4 · <acct>] calculate_portfolio(end_date=<...>) — started`
+- `[STEP 4 · <acct>] calculate_portfolio — completed in <Xs>, verify_source=<...>`
+- `[STEP 5 · <acct>] re-verify — resolved <r>, residual <res>, regressed <g>`
+- `[STEP 6] aggregate — <clean>/<partial>/<unresolved>/<regressed>/<failed>`
+
+Keep each line ≤120 chars. This costs almost nothing in latency and lets the
+analyst tail the run without opening the report.
+
+### Access-name cache
+
+BTG onshore credential-profile names (`BTGStenGestão`, `BTGStenMFO`, etc.)
+are not guessable. The routine persists a `state/access_names.json` map keyed
+by `Client_ID` (from `Global.v_ClientAccount`):
+
+```json
+{
+  "22069":  "BTGStenGestão",
+  "22150":  "BTGStenMFO"
+}
+```
+
+Resolution order per account: (1) caller-supplied `access_name` (applies to
+every account in the run); (2) cache lookup by `Client_ID`; (3) ask the
+analyst once, record the answer, continue. Never guess. When `access_name`
+is needed but neither cached nor supplied, and `dry_run=false`, pause the
+account with `status="failed"`, `errors: [{step, reason: "missing_access_name"}]`
+and continue to the next account — do not block the whole run on one
+credential prompt.
 
 ## State / idempotency
 
@@ -124,6 +171,7 @@ Before doing anything:
 | [`references/deposito-tributos-provisionados.md`](references/deposito-tributos-provisionados.md) | **Local recipe.** Tax-provisioning artifact on active funds (structurally similar to come-cotas but empirically causes no custody-side reduction). IGNORE. Ships the `[PR-IGN-TAXPROV]` tag. |
 | [`references/come-cotas.md`](references/come-cotas.md) | **Local recipe.** Come-cotas SELL on active funds — PENDING promoted to UPDATED with fields preserved. Ships the `[CC]` tag. Cross-reference: [`ayunit://docs/transaction/fixes`](ayunit://docs/transaction/fixes) R2. |
 | [`references/deactivated-fund-residue.md`](references/deactivated-fund-residue.md) | **Local recipe.** Pattern + detection + fix for `PENDING` rows whose Asset resolves to a `Global.Asset.Activated = FALSE` fund with no account history. IGNORE. Ships the `[PR-IGN-DEACT]` tag. |
+| [`references/fund-incorporation-duplicate.md`](references/fund-incorporation-duplicate.md) | **Local recipe.** `PENDING` BUY rows with description `AQUISICAO VIRTUAL` (BTG's phantom shadow entry) on a fund that was already handled by an incorporation pair (ASSET DELIVERY of old fund + ASSET RECEIPT of new fund) or already fully redeemed before the trade date. IGNORE — promoting would double-count. Ships the `[FUND-INC-DUP]` tag. |
 
 ## Tools this skill calls directly
 
@@ -166,11 +214,53 @@ Before doing anything:
 
 ## The routine
 
+### 0 — Optional: refresh custody + transactions from BTG (`refresh_from_btg=true`)
+
+Skipped when `refresh_from_btg=false` (default) or `dry_run=true`. When
+enabled, run **before** Step 1 audit so the audit reads the freshest
+custody snapshot:
+
+1. Resolve `access_name` per §access-name cache. If unresolved for **any**
+   account in scope and no fleet-wide `access_name` was supplied, log
+   `run_meta.errors += ["step0: skipped — access_name unresolved for accounts <list>"]`
+   and continue to Step 1 without refreshing (do not abort — the routine
+   can still reconcile against whatever custody data is already loaded).
+2. For each `(access_name, accounts-under-that-profile)` group:
+   - **Position refresh** for the target date: `mcp__ayunit__process_btg_onshore_position(access_name, accounts, date=end_date)`.
+     This deletes-then-inserts `Portfolio.CustodyPosition` for that date —
+     safe (idempotent for the date), but writes to a shared table so log
+     `positions_processed`, `positions_inserted`, `positions_deleted`,
+     `assets_not_found` for the report.
+   - **Transaction refresh** for each month between `LastCheckedDate+1` and
+     `end_date`. Routing: months **older than 60 days** →
+     `process_btg_onshore_transactions_by_period(access_name, period="<YYYY-MM>", accounts)`;
+     months **within the last 60 days** →
+     `process_btg_onshore_monthly_transactions(access_name, period="<YYYY-MM>", accounts)`.
+     Both read-only against the DB (BTG feed only; do not write
+     `AccountTransaction`).
+3. Capture into `run_meta.step0_refresh_from_btg = { access_name_used, positions_result, transactions_result[], started_at, finished_at, errors[] }`.
+
+**Failure policy for Step 0.** Any Step 0 call failing (BTG API 5xx, credential
+denied, malformed response) is captured in `run_meta.errors` and the routine
+continues with whatever `CustodyPosition` / `AccountTransaction` rows are
+already loaded. Step 0 is a nice-to-have refresh, not a gate.
+
 ### 1 — Pre-flight (always; refuse to proceed on any failure)
 
 1. **MCP reachable.** Run a trivial `execute_select_query` (`SELECT 1`). If it
    fails, abort — do not call any leaf skill without the MCP connected.
-2. **PortfolioCreator service healthy** (only when `dry_run = false`). Call
+2. **Normalize account IDs.** Zero-pad every account in the `accounts` input
+   to 9 digits (`47067` → `000047067`, `4434131` → `004434131`). Verified
+   2026-08-24: `get_daily_control(accounts=["4434131"])` returns 0 rows;
+   `accounts=["004434131"]` returns the account. Every downstream write
+   (`AccountTransaction_Update`, `calculate_portfolio`) also matches the
+   padded form.
+3. **Resolve `end_date`** per the precedence in §Inputs (caller > D-1 >
+   per-account `LastCustodyPositionDate`). D-1 = yesterday's business day
+   in America/Sao_Paulo (skip Sat/Sun; if today is Monday, D-1 = Friday).
+   Cap per-account when the resolved D-1 exceeds that account's
+   `LastCustodyPositionDate` — reconciling past custody data is nonsensical.
+4. **PortfolioCreator service healthy** (only when `dry_run = false`). Call
    `mcp__ayunit__portfolio_creator_health`. Abort if the service reports
    anything other than a healthy status, or if the tool itself is not
    available in the current MCP surface (e.g. the analyst's MCP wasn't
@@ -178,8 +268,8 @@ Before doing anything:
    *"PortfolioCreator service not reachable / unhealthy — cannot run a real
    reconcile pass. Re-run with `dry_run = true` or fix the service first."*
    Capture the returned `version` into `run_meta` for the report.
-3. **State lock.** Apply the §state rules above.
-4. **Skeleton report.** Initialise the in-memory report shape from
+5. **State lock.** Apply the §state rules above.
+6. **Skeleton report.** Initialise the in-memory report shape from
    `references/step-schemas.md` (`run_meta.started_at = <now>`, `accounts =
    []`).
 
@@ -390,6 +480,14 @@ Pre-classifier order (fixed — do not reorder):
    — 7-signal detection on PENDING rows where the resolved Asset is
    `Global.v_Asset.Activated = FALSE` and the account has no history in it.
    IGNORE. Tag `[PR-IGN-DEACT]`.
+3.5. **`fund-incorporation-duplicate`** ([recipe](references/fund-incorporation-duplicate.md))
+   — PENDING BUY rows with `GeneralLedgerDescription = 'AQUISICAO VIRTUAL'` on
+   a fund whose real economic movement was already booked as an incorporation
+   pair (ASSET DELIVERY of old fund + ASSET RECEIPT of new fund on a nearby
+   date), or whose fund was already fully redeemed before this trade date and
+   has no subsequent custody presence. IGNORE. Tag `[FUND-INC-DUP]`. Runs
+   AFTER `deactivated-fund-residue` so a deactivated-fund AQUISICAO VIRTUAL
+   still goes to the deactivated-fund recipe first (it's more specific).
 4. **`deposito-tributos-provisionados`** ([recipe](references/deposito-tributos-provisionados.md))
    — tax-provisioning artifact on an **active** fund (structurally similar
    to come-cotas but with a distinct description and no custody-side
@@ -430,6 +528,62 @@ account + date window**, in this order:
 
 Capture each recipe application into `step3_recipes.<recipe-name>` and each
 leaf invocation into `step3_leaves.<leaf-name>` per the schema.
+
+#### 3.3.5 — Step 3.5: **price-backfill from custody** (autonomous — fixes E7 pricing)
+
+After the pre-classifier pipeline and BEFORE Step 4 recompute, run this pass
+for **every asset the account currently holds** where `AssetData.v_Price` has
+gaps in the reconcile window but `Portfolio.v_CustodyPosition` has a Price:
+
+```sql
+-- One query per account, deduped, returns (Asset, Date, Price) to INSERT
+WITH assets_in_account AS (
+  SELECT DISTINCT Asset FROM Portfolio.v_CustodyPosition
+  WHERE Account=@acct AND Custody=@custody AND CAST([Date] AS date)=@end_date
+),
+cust_prices AS (
+  SELECT cp.Asset, CAST(cp.[Date] AS date) AS dt, MAX(cp.Price) AS cust_price
+  FROM Portfolio.v_CustodyPosition cp JOIN assets_in_account a ON a.Asset=cp.Asset
+  WHERE cp.Account=@acct AND cp.Custody=@custody
+    AND CAST(cp.[Date] AS date) BETWEEN @from_date AND @end_date
+    AND cp.Price > 0
+  GROUP BY cp.Asset, CAST(cp.[Date] AS date)
+),
+existing AS (
+  SELECT DISTINCT Asset, CAST([Date] AS date) AS dt
+  FROM AssetData.v_Price
+  WHERE Asset IN (SELECT Asset FROM assets_in_account)
+    AND CAST([Date] AS date) BETWEEN @from_date AND @end_date
+)
+SELECT cp.Asset, cp.dt, cp.cust_price
+FROM cust_prices cp
+LEFT JOIN existing e ON e.Asset=cp.Asset AND e.dt=cp.dt
+WHERE e.Asset IS NULL;
+```
+
+For every returned row, batch-INSERT via `AssetData.Price_Update @CMD='I'` with
+`Source='<custody>'` (`'BTG'` for BTG onshore). Batch with `execute_batch` for
+atomicity. Use the pre-flight-resolved custody name so the same code path
+works for XP, JP, MS, UBS, etc. — never hard-code `'BTG'` in the loop.
+
+**Why this is autonomous.** `AssetData.Price` is a pure master-data table; the
+INSERT touches no positions. The custody price IS the ground truth for
+BTG-issued instruments (COEs, CDBs, CRIs, CRAs, some FIPs) that Anbima
+doesn't publish. Verified 2026-08-24 on account 004434131 in two batches
+(190 April–May prices + 105 June prices for 5 COEs): closed the entire
+E7-flagged pricing gap that was contributing ±R$217–R$3,000 per COE per day
+across the account.
+
+**Guardrails.**
+- Skip prices where `cust_price = 0` or `cust_price IS NULL`.
+- Skip when `AssetData.v_Price` already has ANY Source for `(Asset, Date)` —
+  don't overwrite Anbima with BTG.
+- Cap the batch at `max_statements = 1000` (default). Split by (asset OR date-range) if larger.
+- Log `step3_5_price_backfill = {assets: [...], prices_inserted: <N>, dates_covered: [...], custody_source: 'BTG'}` into the report.
+
+**When to skip.** Skip the whole pass if the account has no `PriceIssueAssets`
+in Step 1 audit AND no asset in the Step-2 diff shows a book vs custody
+price divergence — the backfill would be a no-op.
 
 **Confidence enrichment from Step 1 audit signals.** The account's Step-1
 `audit_metrics` are a strong prior for what Step 3 should find:
@@ -552,6 +706,50 @@ Mark the account's `status`:
 - `unresolved` — no divergences resolved (leaf writes didn't move the needle).
 - `regressed` — anything appeared in `regressed`.
 - `failed` — a step raised.
+
+#### 3.6 — Step 6: **residual auto-plug within tolerance** (autonomous)
+
+After Step 5 verify, any remaining asset-side divergence that satisfies **all**
+of these signals is auto-plugged via a synthetic BUY/SELL row on `end_date`
+(same shape as `position-quantity-adjustment` leaf, but scoped to the tight
+"reconciliation dust" tolerance so no analyst review is needed):
+
+| Signal | Test | Tag |
+|---|---|---|
+| Non-cash asset | `Asset NOT IN ('BRL','USD',…)` | — |
+| Small qty gap | `\|dQty\|/max(\|cust_qty\|, 1) < 0.001` (0.1%) **OR** `\|cust_qty\| < 1e-3 AND \|calc_qty\| < 1` (pure dust on a no-longer-held asset) | ASSET-side |
+| Small value gap | `\|dQty\| × Price < R$500` (accepts up to ~R$500 of asset value; larger goes to human) | ASSET-side |
+| Custody has the asset OR asset was recently held (last 60 days) | `EXISTS custody row within 60 days OR calc has non-zero qty in the last 60 days` | — |
+| Price available | `AssetData.v_Price` or `v_CustodyPosition` has a Price for this `(Asset, end_date)` | needed to compute plug Value |
+
+**Direction:**
+- `dQty > 0` (book has excess) → **SELL** `dQty` units at Price
+- `dQty < 0` (book has short) → **BUY** `|dQty|` units at Price
+
+**Fields to pass** (matches `position-quantity-adjustment` shape):
+- `Date` = `SettlementDate` = caller's `end_date`
+- `TransactionType` = `BUY` or `SELL`
+- `Asset`, `AssetRelated` = the diverging asset
+- `AssetCustody` = the account's custody name for the asset (from `v_CustodyPosition.AssetR` OR any recent `v_AccountTransaction.AssetCustody`)
+- `Quantity` = `|dQty|` (proc applies sign)
+- `Price` = `PriceExFee` = the resolved price (custody's Price preferred; else `AssetData.v_Price`)
+- `Value` = `ValueGross` = `|dQty| × Price` (absolute)
+- `Status` = `UPDATED`
+- `GeneralLedgerDescription` = `'AJUSTE RECONCILIACAO - <asset> residual plug'`
+- `AgentCheck` = `"fix <YYYY-MM-DD>: reconciliation plug <BUY|SELL> <qty> units <Asset> @ R$<price>/unit = R$<value> to zero out book residual (calc <calc_qty> - cust <cust_qty> = <dQty>). <reason: pre-existing rounding | deactivated fund dust | pricing timing>. [POS-PLUG]"`  (tag `[POS-PLUG-DUST]` if the qty-gap is dust on a no-longer-held asset)
+- `RawTransaction` = `'{"synthetic": true, "reason": "position reconciliation plug", "asset": "<X>", "dQty_book_minus_custody": <dQty>, "resolved_price": <price>, "agent_check_tag": "[POS-PLUG]"}'`
+
+**What this does NOT auto-plug** (escalate to human):
+- **Cash-side residuals (`BRL`, `USD`)** — cash gaps almost always trace to a real trade or an in-transit artifact (see §Step 2.5 cash-gap investigation + `fund-incorporation-duplicate.md`). Auto-plugging cash hides the diagnostic signal.
+- **Missing custody snapshot day** (custody doesn't report the asset on `end_date` at all) — likely a custody data-gap, not a book bug. Investigate before plugging.
+- **Anything above the R$500 asset-value tolerance** — real position break, needs analyst review.
+- **Pricing-only residuals** (`dQty ≈ 0` but `dValue material`) — a plug can't fix a price gap. Pricing team hand-off.
+
+**After the plugs, recompute one more time** (`calculate_portfolio` on the same account/end_date) and re-verify. Any residual after this second recompute is either report-only pricing noise or escalated.
+
+Capture into `step3_6_residual_plugs = {plugs: [{asset, direction, qty, price, value, dqty_before, dvalue_before, tag}], recompute_job_id, final_delta_total, final_delta_pct}`.
+
+Verified 2026-08-24 on account 004434131 at 2026-06-30: closed Sten Master D30 +44.85 units (`[POS-PLUG]`), STEN MFO D5 −0.0066 units dust (`[POS-PLUG-DUST]`), STEN MFO DEB INFRA −0.0026 units dust (`[POS-PLUG-DUST]`) — all three qty gaps went to 0 after recompute.
 
 ### 4 — Aggregate
 
