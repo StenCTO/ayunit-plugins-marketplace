@@ -29,8 +29,7 @@ The skill's `description` frontmatter must list phrases like:
 | Input | Default | Notes |
 |---|---|---|
 | `lookback_days` | 45 | Positive integer. Window is `[today − lookback_days, today]`. |
-| `end_date` | today (2026-08-25 at build time; runtime = current date) | ISO date. Rarely overridden; supports back-dated audits. |
-| `include_fuzzy_categories` | user checklist per run | See §5 Layer 2. |
+| `end_date` | today (runtime = current date) | ISO date. Rarely overridden; supports back-dated audits. |
 
 ## 4. Non-goals
 
@@ -41,11 +40,9 @@ Explicit to keep scope tight:
 - **No external-provider unsubscription.** This skill only flips the DB flag; downstream loaders/schedulers stop querying automatically because they filter on `Activated=1`.
 - **No batch write.** Per-row confirmation model (see §7). `execute_batch` is not used — the point is human eyeballs per row, and batches obscure that.
 
-## 5. Exclusion filter (two-layer)
+## 5. Exclusion filter (single-layer, hardcoded)
 
-### Layer 1 — hardcoded structural floor (never candidates)
-
-Grounded in the live `Global.v_Asset` taxonomy pulled 2026-08-25 (139 combos across `AssetGroup × SecurityType × Product × AssetClass`). The following categories are structural markers, never held-as-positions in the client sense:
+Grounded in the live `Global.v_Asset` taxonomy pulled 2026-08-25 (139 combos across `AssetGroup × SecurityType × Product × AssetClass`). The following categories are structural markers, illiquid by nature, or otherwise out of scope for the sweep — they are always excluded, no per-run checklist:
 
 ```sql
 AssetGroup NOT IN (
@@ -54,38 +51,31 @@ AssetGroup NOT IN (
   'Settlement',       -- 4 rows: unsettled trade markers
   'Compromissada',    -- 2 rows: repo lines
   'CPR',              -- 4 rows: provisioned receivables
-  'Future',           -- 2 rows: generic futures
-  'Future Currency',  -- 1 row
-  'Futuro DAP',       -- 1 row
-  'Futuro DI',        -- 2 rows
-  'FX'                -- 19 rows: NDFs / FX hedges
+  'COE'               -- 37 rows: illiquid structured notes, out of scope
 )
 AND AssetClass NOT IN (
-  'FX Hedge',
+  'FX Hedge',         -- belt-and-suspenders for any FX row misclassified
   'Provisão',
-  'Benchmark'
+  'Benchmark',        -- catches e.g. AssetGroup='Equity', AssetClass='Benchmark' (1 row)
+  'Hedge Fund',       -- 127 assets: illiquid by nature, kept out of scope
+  'Ilíquidos Exterior',  -- 15 assets: illiquid by nature
+  'Private Credit',
+  'Private Equity',
+  'Real Estate',
+  'Special Situations',
+  'Crédito Estruturado',
+  'Crédito Estruturado Não Padronizado',
+  'Crédito Estruturado Subordinado'
 )
 ```
 
-Belt-and-suspenders: the `AssetClass` clause catches any row that slips through `AssetGroup` (e.g. `AssetGroup='Equity', AssetClass='Benchmark'` — 1 row exists).
+**Kept in scope on purpose:** `Future`, `Future Currency`, `Futuro DAP`, `Futuro DI`, `FX` (NDFs) — these are actively traded and their staleness is a real signal.
 
-### Layer 2 — live checklist (fuzzy categories, per-run)
+### Liquid target set (after the filter)
 
-The skill queries the DB for the distinct classification combos that survive Layer 1, then prompts the user:
+Covers: `Bond`, `Equity` (Stock/ETF), `Tesouro`, `Treasury`, `LCI/LCA`, `Debênture`, `CRI/CRA`, `RF Não Listada` (CDBs, LFs), `FII`, `Fundos` (excluding the illiquid AssetClasses above), `Mutual Fund`, `Time Deposit`, `Option`, `CBIO`, `CLN`, `Future*`, `FX`.
 
-> "Include these categories in the sweep? (default: all ticked)
-> [x] Hedge Fund (`AssetClass='Hedge Fund'` — 127 assets)
-> [x] Private Equity / Private Credit / Real Estate / Special Situations (`Product IN ('Alternative','Alternativos')`  — 165 assets)
-> [x] Ilíquidos Exterior (`AssetClass='Ilíquidos Exterior'` — 15 assets)
-> [x] COE (`AssetGroup='COE'` — 37 assets)"
-
-Unchecking a category excludes it from that run only — no persistence, no config file.
-
-**Rationale for two layers:** benchmarks, cash, settlement, compromissada, CPR, futures, and FX hedges are structural — flagging them is always a false positive, so hardcoded exclusion saves the user a question. Illiquid alternatives and COE are judgment calls that depend on which funds are actively watched — a live checklist keeps the user in control without editing the skill.
-
-### Liquid target set (after both layers)
-
-Covers: `Bond`, `Equity` (Stock/ETF), `Tesouro`, `Treasury`, `LCI/LCA`, `Debênture`, `CRI/CRA`, `RF Não Listada` (CDBs, LFs), `FII`, most `Fundos`, `Mutual Fund`, `Time Deposit`, `Option`, `CBIO`, `CLN`.
+**Rationale for single-layer.** The illiquid / alternative categories (Hedge Fund, Private Credit / Equity / Real Estate, Special Situations, Ilíquidos Exterior, COE) are structurally out of scope for a "wasted external-request" audit — they don't pull daily prices from Bloomberg/ANBIMA the same way liquid instruments do, so flagging them adds no value. Excluding them at the SQL level is simpler than a per-run checklist and makes the skill non-interactive on the filter step.
 
 ## 6. Detection query
 
@@ -128,6 +118,7 @@ SELECT
   a.SecurityType,
   a.AssetClass,
   a.Currency,
+  a.Maturity,                                 -- verified column name at runtime
   ls.LastHeldDate,
   COALESCE(ah.AccountsHistorical, 0) AS AccountsHistorical,
   a.RegisteredOn                              -- verified column name at runtime
@@ -137,25 +128,26 @@ LEFT JOIN accts_hist ah ON ah.fk_AssetID = a.pk_AssetID
 WHERE a.Activated = 1
   AND a.pk_AssetID NOT IN (SELECT fk_AssetID FROM held_account)
   AND a.pk_AssetID NOT IN (SELECT fk_AssetID FROM held_custody)
-  AND a.AssetGroup  NOT IN (:LAYER1_ASSETGROUPS)
-  AND a.AssetClass  NOT IN (:LAYER1_ASSETCLASSES)
-  AND (:LAYER2_CATEGORY_FILTER)
+  AND a.AssetGroup  NOT IN (:EXCLUDED_ASSETGROUPS)
+  AND a.AssetClass  NOT IN (:EXCLUDED_ASSETCLASSES)
 ORDER BY a.AssetGroup, ls.LastHeldDate DESC;
 ```
 
 **`LastHeldDate` semantics:** the most recent date the asset was ever held **before the window started** (`Date < @start`). This distinguishes "quiet since March, held for years" (recent activity but out of window) from "quiet forever" (registered but never held — possibly a bad registration).
 
-**Runtime schema probe.** Before the scan, skill calls `get_table_detail` on `Global.v_Asset`, `Portfolio.v_AccountPosition`, `Portfolio.v_CustodyPosition` to confirm every column referenced exists. If a column is missing (e.g. `RegisteredOn` is actually `CreatedOn` or `InsertDate`), the skill picks the right one from the introspection result rather than failing.
+**`Maturity` semantics:** for fixed-income assets, the redemption date. A past `Maturity` on a still-Activated asset is the strongest possible signal that deactivation is safe (the instrument has already matured). NULL for equities, funds, and other non-maturing assets — displayed as `—` in the preview.
+
+**Runtime schema probe.** Before the scan, skill calls `get_table_detail` on `Global.v_Asset`, `Portfolio.v_AccountPosition`, `Portfolio.v_CustodyPosition` to confirm every column referenced exists. If a column is missing (e.g. `RegisteredOn` is actually `CreatedOn` or `InsertDate`, or `Maturity` is `MaturityDate`), the skill picks the right one from the introspection result rather than failing.
 
 ## 7. Preview and per-row confirmation
 
 Flat table shown to user (all rows, ordered by `AssetGroup, LastHeldDate DESC`):
 
 ```
-#  | Asset       | AssetGroup   | SecurityType | AssetClass      | Ccy | LastHeld   | Accts | RegOn
-1  | DEB1234ABC  | Debênture    | Debênture    | Crédito Privado | BRL | 2025-11-14 | 3     | 2023-02-01
-2  | DEB5678XYZ  | Debênture    | Debênture    | Crédito Privado | BRL | 2025-09-02 | 1     | 2024-01-10
-3  | STCKSAMPLE  | Equity       | Stock        | Single Stock    | BRL | 2025-06-30 | 5     | 2022-04-15
+#  | Asset       | AssetGroup   | SecType   | AssetClass      | Ccy | Maturity   | LastHeld   | Accts | RegOn
+1  | DEB1234ABC  | Debênture    | Debênture | Crédito Privado | BRL | 2025-06-15 | 2025-05-30 | 3     | 2023-02-01
+2  | DEB5678XYZ  | Debênture    | Debênture | Crédito Privado | BRL | 2027-04-01 | 2025-09-02 | 1     | 2024-01-10
+3  | STCKSAMPLE  | Equity       | Stock     | Single Stock    | BRL | —          | 2025-06-30 | 5     | 2022-04-15
 …
 ```
 
@@ -177,9 +169,7 @@ Per confirmed row (loop, not batch — the per-row confirmation model exists pre
 
 1. **Fetch full row** — `SELECT * FROM Global.v_Asset WHERE Asset = @Asset` for every populated column. Per repo `CLAUDE.md` §0 golden rule: `U` overwrites every column from the params passed; omitted fields become `NULL`. This step is non-negotiable.
 2. **Drop computed fields** from the SELECT result — any auto-computed / view-only columns the procedure rejects (analogous to how `AccountTransaction_Update` rejects `AccountCurrency`/`AccountFx`). Verified at skill build via `get_procedure_detail` on `Global.Asset_Update`.
-3. **Build `Global.Asset_Update @CMD='U'`** with all fields carried forward + `Activated = 0` + `Obs` / `AgentCheck` documenting the sweep:
-   - `Obs`: preserve existing + append ` | unused-asset-audit 2026-08-25: no AccountPosition/CustodyPosition rows in last 45d, LastHeld=<date>`
-   - `AgentCheck`: `unused-asset-audit`
+3. **Build `Global.Asset_Update @CMD='U'`** with all fields carried forward, changing only `Activated` from `1` to `0`. No `Obs` / `AgentCheck` mutation — deactivation is reversible (a re-activation would just flip the flag back), so an audit trail on the Asset row itself is unnecessary; the git history of any subsequent re-activation flip is enough evidence.
 4. **Call `execute_procedure`** with those params.
 5. **Verify** — `SELECT Activated FROM Global.v_Asset WHERE Asset = @Asset` returns `0`. If not, surface as error and stop the loop for user attention.
 6. Print `[<Asset>] deactivated ✓` and continue to next row.
@@ -207,7 +197,7 @@ Per repo `CLAUDE.md` §§0, 2, 3.5:
    grep -n "^| \`asset\` \|" README.md
    grep -n "asset v0\." plugins/asset/README.md
    ```
-4. Commit style: `asset v0.6.0: add unused-asset-audit skill (Global.Asset Activated=1 sweep with two-layer filter and per-row Activated=0 flip)`.
+4. Commit style: `asset v0.6.0: add unused-asset-audit skill (Global.Asset Activated=1 sweep across AccountPosition+CustodyPosition with per-row Activated=0 flip)`.
 5. Push to **both** remotes: `git push github unused-asset-audit && git push origin unused-asset-audit`.
 6. Open PR on GitHub, merge (squash + delete branch) — this fires the marketplace CDN sync.
 7. Local ff-merge `main`, then `git push origin main` to mirror.
@@ -217,10 +207,9 @@ Per repo `CLAUDE.md` §§0, 2, 3.5:
 Before declaring the skill done:
 
 1. **Dry-run against production data.** Run the detection query with `lookback_days = 45`, no writes. Sanity-check: does the count look plausible (dozens, not thousands)? Spot-check 3–5 assets manually — are they actually stale?
-2. **Layer 1 sanity.** Confirm zero benchmarks / cash / settlement / futures in the candidate list.
-3. **Layer 2 UX check.** Verify the checklist renders and unchecking a category correctly excludes it.
-4. **Write path smoke test.** Pick ONE candidate the user agrees is safe, run through the full flow end-to-end, verify `Activated=0` in `Global.v_Asset`, verify the audit trail in `Obs`.
-5. **Idempotency check.** Re-running the skill immediately after should show the just-deactivated assets are gone from the candidate list (because `Activated=1` is the filter).
+2. **Exclusion filter sanity.** Confirm zero benchmarks / cash / settlement / compromissada / CPR / COE / hedge funds / private-anything / illiquid-exterior in the candidate list.
+3. **Write path smoke test.** Pick ONE candidate the user agrees is safe, run through the full flow end-to-end, verify `Activated=0` in `Global.v_Asset` and that every other column on the row is unchanged (spot-check `Currency`, `AssetGroup`, `Maturity`, `Obs`).
+4. **Idempotency check.** Re-running the skill immediately after should show the just-deactivated assets are gone from the candidate list (because `Activated=1` is the filter).
 
 ## 12. Open questions
 
