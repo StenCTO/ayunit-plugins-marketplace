@@ -5,7 +5,7 @@
   },
   "metadata": {
     "description": "Sten Capital's internal Claude plugins for the ayunit / Agnes backoffice — one plugin per Portfolio/Global domain.",
-    "version": "1.0.0"
+    "version": "1.1.0"
   },
   "plugins": [
     {
@@ -21,7 +21,7 @@
     {
       "name": "asset",
       "source": "./plugins/asset",
-      "description": "Security-master tools for Global.Asset and Portfolio.AssetCustody on the ayunit MCP. Registration-by-analogy with lookup-validation and duplicate gating. Skills: asset-register, register-br-funds (CNPJ → ANBIMA → asset-register hand-off)."
+      "description": "Security-master tools for Global.Asset and Portfolio.AssetCustody on the ayunit MCP. Skills: asset-lookup (read-only pre-check that resolves any custody-side identifier — ISIN/CUSIP/CNPJ/ANBIMA/numeric custody code/free-text — to a canonical Asset, mandatory before any registration attempt); asset-register (registration-by-analogy for a NEW instrument, validates every classification against its lookup, runs duplicate+identifier gate, previews, and INSERTs via Global.Asset_Update); register-br-funds (BR-fund cadastro path when only the CNPJ is known: CNPJ → ANBIMA classe/subclasse → get_anbima_cadastral_data → hand-off to asset-register); assetcustody-fill (durable upstream fix: INSERTs the missing per-custody AssetCustody mapping ONCE, then back-fills Portfolio.CustodyPosition in bulk via Update_Missing_Asset, then unblocks PENDING transactions per-mapping instead of per-pk); asset-price-history (backfills AssetData.Price via the fixed source-priority chain v_Price → AssetDataDB.v_MarketData → AssetDataDB.v_Price → v_CustodyPosition×PriceFactor, never overwriting existing rows silently)."
     },
     {
       "name": "routines",
