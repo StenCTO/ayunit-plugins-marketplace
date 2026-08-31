@@ -1,7 +1,7 @@
 {
   "name": "asset",
-  "version": "0.5.1",
-  "description": "Tools for the firm's security master and custody mapping on the ayunit MCP. Reads/writes Global.Asset (one row per instrument, keyed by Asset) and Portfolio.AssetCustody (per-custodian ticker/CUSIP ↔ Asset link) — registration-by-analogy, classification validation against lookups, custody identifier lifecycle, (v0.4.0) read-only asset lookup via identify_asset + v_AssetCustody as the mandatory pre-check before asset-register, and (v0.5.0) assetcustody-fill: fleet-wide AssetCustody INSERT + Portfolio.CustodyPosition back-fill via Update_Missing_Asset, the durable upstream fix that unblocks PENDING transactions per-mapping instead of per-pk.",
+  "version": "0.6.0",
+  "description": "Tools for the firm's security master and custody mapping on the ayunit MCP. Reads/writes Global.Asset (one row per instrument, keyed by Asset) and Portfolio.AssetCustody (per-custodian ticker/CUSIP ↔ Asset link) — registration-by-analogy, classification validation against lookups, custody identifier lifecycle, (v0.4.0) read-only asset lookup via identify_asset + v_AssetCustody as the mandatory pre-check before asset-register, (v0.5.0) assetcustody-fill: fleet-wide AssetCustody INSERT + Portfolio.CustodyPosition back-fill via Update_Missing_Asset, the durable upstream fix that unblocks PENDING transactions per-mapping instead of per-pk, and (v0.6.0) register-debenture: Anbima-register-driven debenture cadastro/completion via get_debenture_register_data — remuneration parsing, Global.Asset mapping, asset-register handoff for new rows, gap-fill U for existing ones.",
   "author": {
     "name": "Sten Capital"
   },
