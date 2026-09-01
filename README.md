@@ -169,7 +169,7 @@ Then add it to `.claude-plugin/marketplace.json`:
 |---|---|---|
 | `account-transaction` | 0.12.2 | `ubs-miami`, `transaction-workday-audit`, `pending-revalidate`, `pending-position-repair`, `duplicate-trade-reconcile`, `assetrelated-fix`, `compromissada-fix`, `position-quantity-adjustment` (+ shared `references/write-invariants.md`) |
 | `position` | 0.1.0 | `inception-position` |
-| `asset` | 0.6.0 | `asset-register`, `asset-lookup`, `asset-price-history`, `assetcustody-fill`, `register-br-funds`, `register-debenture` |
+| `asset` | 0.6.1 | `asset-register`, `asset-lookup`, `asset-price-history`, `assetcustody-fill`, `register-br-funds`, `register-debenture` |
 | `anbima-data` | 0.3.0 | `anbima-funds-data`, `anbima-funds-historical-data`, `anbima-funds-explorer` |
 | `routines` | 0.8.0 | `new-asset-onboarding`, `daily-btg-onshore-routine`, `daily-btg-offshore-routine`, `btg-onshore-onboarding` |
 | `marketplace-tools` | 0.2.0 | `skill-review`, `artifact-review` (+ `/skill-new` command) |
