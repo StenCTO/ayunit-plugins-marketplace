@@ -108,16 +108,25 @@ git push github <short-descriptor>              # required — triggers PR flow
 git push origin <short-descriptor>              # keeps Azure in sync
 
 # 4. Open a PR on GitHub → merge it (squash + delete branch)
-#    URL: https://github.com/StenCTO/ayunit-plugins-marketplace/pull/new/<short-descriptor>
-#    Merging to `main` on GitHub is what fires the marketplace CDN sync.
+#    Preferred (autonomous, since 2026-09-01): the GitHub CLI is installed at
+#    "C:\Program Files\GitHub CLI\gh.exe" and authenticated as StenCTO —
+#    Claude runs steps 4–6 itself:
+gh pr create --base main --head <short-descriptor> --title "..." --body "..."
+gh pr merge <PR#> --squash --delete-branch
+#    (gh merge also fast-forwards local main and deletes the local+GitHub
+#    branch — step 5 collapses into it.)
+#    Fallback (no gh): open the PR in the browser and merge manually:
+#    https://github.com/StenCTO/ayunit-plugins-marketplace/pull/new/<short-descriptor>
+#    Either way, merging to `main` on GitHub is what fires the marketplace CDN sync.
 
-# 5. Locally fast-forward main to the merged commit
+# 5. (manual-merge fallback only) fast-forward main to the merged commit
 git checkout main
 git fetch github && git merge --ff-only github/main
 git branch -d <short-descriptor>
 
-# 6. Mirror the merged commit to Azure so both remotes stay identical
+# 6. Mirror to Azure so both remotes stay identical, and drop the Azure branch
 git push origin main
+git push origin --delete <short-descriptor>     # separate call — NEVER chain with another refspec
 ```
 
 **Belt-and-suspenders.** Enable **branch protection on `main`** in GitHub
