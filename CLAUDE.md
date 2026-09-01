@@ -129,11 +129,14 @@ git push origin main
 git push origin --delete <short-descriptor>     # separate call — NEVER chain with another refspec
 ```
 
-**Belt-and-suspenders.** Enable **branch protection on `main`** in GitHub
-Settings → Branches → Add rule → "Require a pull request before merging".
-Once on, GitHub rejects any direct `git push github main`, mechanically
-enforcing this workflow. Recommended even for a solo maintainer — it removes
-the failure mode entirely.
+**Belt-and-suspenders — ENABLED (2026-09-01).** `main` on the GitHub remote
+has branch protection: PR required before merging (0 approvals, so `gh pr
+merge` on own PRs works), `enforce_admins` on (applies to the owner too),
+force pushes and branch deletion blocked. Any direct `git push github main`
+is mechanically rejected — the stranded-release failure mode is gone. Managed
+via `gh api repos/StenCTO/ayunit-plugins-marketplace/branches/main/protection`.
+The Azure remote (`origin`) is NOT protected: step 6's `git push origin main`
+mirror still works normally.
 
 **When teammates get the update.** After step 4 merges, the marketplace CDN
 picks up the new manifest on its next sync (typically minutes). Teammates
@@ -141,10 +144,10 @@ receive the new plugin versions on their **next Cowork Desktop restart**,
 provided their marketplace has "Sync automatically" enabled (a one-time
 per-teammate setup: Settings → Marketplaces → sten-ayunit → toggle on).
 
-**Exceptions to PR flow.** None for plugin changes. Docs-only edits to root
-`README.md` or this `CLAUDE.md` may go via PR too for consistency, but a
-direct push doesn't strand anything user-facing — no version bump means no
-plugin update to propagate.
+**Exceptions to PR flow.** None — since branch protection went on
+(2026-09-01), GitHub rejects every direct push to `main`, docs-only included.
+Everything lands via the `gh pr create` → `gh pr merge` flow above; with the
+CLI it costs seconds.
 
 ## 4. Editing a skill — checklist
 
